@@ -67,7 +67,7 @@ export const EmployeesTab: React.FC<EmployeesTabProps> = ({ onOpenInvite }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
-  const [editRole, setEditRole] = useState<AppUser['role']>('Cashier');
+  const [editRole, setEditRole] = useState<AppUser['role']>('Employee');
 
   // Cancel Confirmation Modal for Invitation
   const [invToCancel, setInvToCancel] = useState<Invitation | null>(null);
@@ -80,7 +80,9 @@ export const EmployeesTab: React.FC<EmployeesTabProps> = ({ onOpenInvite }) => {
       u.email.toLowerCase().includes(staffSearch.toLowerCase()) ||
       u.phone.toLowerCase().includes(staffSearch.toLowerCase());
 
-    const matchesRole = staffRoleFilter === 'ALL' || u.role === staffRoleFilter;
+    const isEmpAdmin = u.role.toLowerCase() === 'admin' || u.role.toUpperCase() === 'CUSTOMER_ADMIN';
+    const matchesRole = staffRoleFilter === 'ALL' ||
+      (staffRoleFilter === 'Admin' ? isEmpAdmin : !isEmpAdmin);
     const matchesStatus = staffStatusFilter === 'ALL' || u.status === staffStatusFilter;
 
     return matchesSearch && matchesRole && matchesStatus;
@@ -231,9 +233,7 @@ export const EmployeesTab: React.FC<EmployeesTabProps> = ({ onOpenInvite }) => {
                 >
                   <option value="ALL">All Roles</option>
                   <option value="Admin">Admin</option>
-                  <option value="Manager">Manager</option>
-                  <option value="Cashier">Cashier</option>
-                  <option value="Accountant">Accountant</option>
+                  <option value="Employee">Employee</option>
                 </select>
               </div>
 
@@ -314,13 +314,16 @@ export const EmployeesTab: React.FC<EmployeesTabProps> = ({ onOpenInvite }) => {
                         </td>
 
                         <td className="px-4 py-4">
-                          <span className={`inline-flex px-2 py-0.5 rounded-md text-[11px] font-semibold border ${
-                            emp.role === 'Admin' ? 'bg-purple-50 text-purple-700 border-purple-200' :
-                            emp.role === 'Manager' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                            'bg-slate-100 text-slate-700 border-slate-200'
-                          }`}>
-                            {emp.role}
-                          </span>
+                          {(() => {
+                            const isRoleAdmin = emp.role.toLowerCase() === 'admin' || emp.role.toUpperCase() === 'CUSTOMER_ADMIN';
+                            return (
+                              <span className={`inline-flex px-2 py-0.5 rounded-md text-[11px] font-semibold border ${
+                                isRoleAdmin ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              }`}>
+                                {isRoleAdmin ? 'Admin' : 'Employee'}
+                              </span>
+                            );
+                          })()}
                         </td>
 
                         <td className="px-4 py-4">
@@ -619,10 +622,8 @@ export const EmployeesTab: React.FC<EmployeesTabProps> = ({ onOpenInvite }) => {
                   onChange={(e) => setEditRole(e.target.value as AppUser['role'])}
                   className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm"
                 >
+                  <option value="Employee">Employee</option>
                   <option value="Admin">Admin</option>
-                  <option value="Manager">Manager</option>
-                  <option value="Cashier">Cashier</option>
-                  <option value="Accountant">Accountant</option>
                 </select>
               </div>
 

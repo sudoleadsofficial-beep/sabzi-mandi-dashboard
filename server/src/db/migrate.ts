@@ -213,6 +213,725 @@ export async function runMigrations(): Promise<void> {
       ON CONFLICT (name) DO NOTHING;
     `);
 
+    // 7. Migration 005: Central Synchronization Event Storage & Device Metadata
+    await client.query(`
+      -- Ensure devices table supports desktop device metadata
+      ALTER TABLE devices ADD COLUMN IF NOT EXISTS hostname VARCHAR(120);
+      ALTER TABLE devices ADD COLUMN IF NOT EXISTS os VARCHAR(60);
+      ALTER TABLE devices ADD COLUMN IF NOT EXISTS metadata JSONB;
+
+      -- Central Synchronization Event Storage table
+      CREATE TABLE IF NOT EXISTS sync_events (
+        id BIGSERIAL PRIMARY KEY,
+        event_uuid VARCHAR(64) UNIQUE NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        device_id VARCHAR(100) NOT NULL,
+        entity_type VARCHAR(100) NOT NULL,
+        entity_uuid VARCHAR(64) NOT NULL,
+        operation VARCHAR(20) NOT NULL,
+        payload JSONB NOT NULL,
+        status VARCHAR(50) DEFAULT 'received',
+        error_message TEXT,
+        event_timestamp TIMESTAMPTZ,
+        received_at TIMESTAMPTZ DEFAULT NOW(),
+        processed_at TIMESTAMPTZ
+      );
+
+      -- Index for cursor-based pull pagination per tenant
+      CREATE INDEX IF NOT EXISTS idx_sync_events_biz_id ON sync_events(business_id, id ASC);
+
+      -- Index for device filtering and tracking
+      CREATE INDEX IF NOT EXISTS idx_sync_events_biz_device ON sync_events(business_id, device_id);
+
+      -- Index for entity-level tracking
+      CREATE INDEX IF NOT EXISTS idx_sync_events_entity ON sync_events(business_id, entity_type, entity_uuid);
+
+      -- Index for status filtering
+      CREATE INDEX IF NOT EXISTS idx_sync_events_status ON sync_events(status);
+
+      -- Unique constraint on sync_records per device and business for clean telemetry upserts
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_records_device_biz ON sync_records(device_id, business_id);
+    `);
+
+    await client.query(`
+      INSERT INTO migrations (name)
+      VALUES ('005_central_sync_events_storage')
+      ON CONFLICT (name) DO NOTHING;
+    `);
+
+    // 8. Migration 006: Central POS Business Data Replication Schema (Phase 8)
+    await client.query(`
+      -- Tier 1: Independent master lookups & financial
+      CREATE TABLE IF NOT EXISTS areas (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        name_en VARCHAR(255),
+        name_ur VARCHAR(255),
+        status VARCHAR(50) DEFAULT 'active',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_areas_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_areas_biz ON areas(business_id);
+
+      CREATE TABLE IF NOT EXISTS items (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        code VARCHAR(50),
+        name_en VARCHAR(255),
+        name_ur VARCHAR(255),
+        unit VARCHAR(50) DEFAULT 'Nag',
+        kg_per_unit NUMERIC(8, 2),
+        default_rate NUMERIC(10, 2),
+        purchase_rate NUMERIC(10, 2),
+        discount_rate NUMERIC(10, 2),
+        default_bardana NUMERIC(10, 2),
+        shelf_life VARCHAR(100),
+        shelf_life_days INTEGER,
+        expiry_at TIMESTAMPTZ,
+        opening_stock INTEGER DEFAULT 0,
+        current_stock INTEGER DEFAULT 0,
+        low_stock_alert INTEGER DEFAULT 10,
+        lot_date VARCHAR(50),
+        stock_note VARCHAR(255),
+        status VARCHAR(50) DEFAULT 'active',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_items_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_items_biz ON items(business_id);
+
+      CREATE TABLE IF NOT EXISTS investment_partners (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        name_ur VARCHAR(255),
+        role VARCHAR(50) DEFAULT 'partner',
+        phone VARCHAR(50),
+        profit_percentage NUMERIC(5, 2) DEFAULT 0,
+        opening_capital NUMERIC(14, 2) DEFAULT 0,
+        status VARCHAR(50) DEFAULT 'active',
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT uq_investment_partners_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_investment_partners_biz ON investment_partners(business_id);
+
+      CREATE TABLE IF NOT EXISTS investment_loans (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        lender_name VARCHAR(255) NOT NULL,
+        lender_name_ur VARCHAR(255),
+        phone VARCHAR(50),
+        direction VARCHAR(20) DEFAULT 'payable',
+        principal_amount NUMERIC(14, 2) DEFAULT 0,
+        fee_or_interest NUMERIC(14, 2) DEFAULT 0,
+        paid_amount NUMERIC(14, 2) DEFAULT 0,
+        due_date DATE,
+        status VARCHAR(50) DEFAULT 'active',
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT uq_investment_loans_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_investment_loans_biz ON investment_loans(business_id);
+
+      CREATE TABLE IF NOT EXISTS investment_surplus (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        fund_name VARCHAR(255) NOT NULL,
+        fund_name_ur VARCHAR(255),
+        kaha_lagaya VARCHAR(255),
+        principal_amount NUMERIC(14, 2) DEFAULT 0,
+        profit_or_loss NUMERIC(14, 2) DEFAULT 0,
+        roi_rate VARCHAR(50),
+        is_realised BOOLEAN DEFAULT FALSE,
+        maturity_date DATE,
+        status VARCHAR(50) DEFAULT 'active',
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT uq_investment_surplus_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_investment_surplus_biz ON investment_surplus(business_id);
+
+      CREATE TABLE IF NOT EXISTS customers (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        code VARCHAR(100),
+        phone VARCHAR(50),
+        email VARCHAR(255),
+        whatsapp VARCHAR(50),
+        address TEXT,
+        avatar VARCHAR(255),
+        status VARCHAR(50) DEFAULT 'active',
+        created_by VARCHAR(64),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_customers_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_customers_biz ON customers(business_id);
+
+      CREATE TABLE IF NOT EXISTS suppliers (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        phone VARCHAR(50),
+        address TEXT,
+        contact_person VARCHAR(255),
+        pan VARCHAR(100),
+        brands JSONB,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_suppliers_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_suppliers_biz ON suppliers(business_id);
+
+      CREATE TABLE IF NOT EXISTS categories (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        image VARCHAR(255),
+        description TEXT,
+        parent_id BIGINT DEFAULT 0,
+        parent_uuid VARCHAR(64),
+        status VARCHAR(50) DEFAULT 'active',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_categories_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_categories_biz ON categories(business_id);
+
+      CREATE TABLE IF NOT EXISTS brands (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        image VARCHAR(255),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_brands_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_brands_biz ON brands(business_id);
+
+      CREATE TABLE IF NOT EXISTS attributes (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        attributes JSONB,
+        status VARCHAR(50) DEFAULT 'active',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_attributes_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_attributes_biz ON attributes(business_id);
+
+      CREATE TABLE IF NOT EXISTS employees (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        code VARCHAR(100),
+        name VARCHAR(255) NOT NULL,
+        phone VARCHAR(50),
+        address TEXT,
+        joined_at DATE,
+        department VARCHAR(100),
+        position VARCHAR(100),
+        document_type VARCHAR(50),
+        document_number VARCHAR(100),
+        avatar VARCHAR(255),
+        document_files JSONB,
+        status VARCHAR(50),
+        created_by VARCHAR(64),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_employees_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_employees_biz ON employees(business_id);
+
+      CREATE TABLE IF NOT EXISTS currencies (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        name VARCHAR(100) NOT NULL,
+        label VARCHAR(50) NOT NULL,
+        is_current BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_currencies_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_currencies_biz ON currencies(business_id);
+
+      CREATE TABLE IF NOT EXISTS expenses (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        date DATE NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        amount NUMERIC(12, 2) NOT NULL,
+        description TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_expenses_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_expenses_biz ON expenses(business_id, date);
+
+      -- Tier 2: Primary Parties
+      CREATE TABLE IF NOT EXISTS merchants (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        code BIGINT,
+        name_en VARCHAR(255),
+        name_ur VARCHAR(255),
+        phone VARCHAR(50),
+        city VARCHAR(255),
+        customer_type VARCHAR(100),
+        credit_limit NUMERIC(14, 2) DEFAULT 0,
+        description VARCHAR(255),
+        notes TEXT,
+        opening_balance NUMERIC(14, 2) DEFAULT 0,
+        current_balance NUMERIC(14, 2) DEFAULT 0,
+        status VARCHAR(50) DEFAULT 'active',
+        created_by VARCHAR(64),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_merchants_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_merchants_biz ON merchants(business_id);
+
+      CREATE TABLE IF NOT EXISTS farmers (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        code BIGINT,
+        name_en VARCHAR(255),
+        name_ur VARCHAR(255),
+        phone VARCHAR(50),
+        area_id BIGINT REFERENCES areas(id) ON DELETE SET NULL,
+        area_uuid VARCHAR(64),
+        opening_balance NUMERIC(14, 2) DEFAULT 0,
+        current_balance NUMERIC(14, 2) DEFAULT 0,
+        status VARCHAR(50) DEFAULT 'active',
+        created_by VARCHAR(64),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_farmers_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_farmers_biz ON farmers(business_id);
+
+      -- Tier 3: Secondary dependencies
+      CREATE TABLE IF NOT EXISTS farmer_marks (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        code BIGINT DEFAULT 0,
+        farmer_id BIGINT REFERENCES farmers(id) ON DELETE CASCADE,
+        farmer_uuid VARCHAR(64),
+        name_en VARCHAR(255),
+        name_ur VARCHAR(255),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_farmer_marks_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_farmer_marks_biz ON farmer_marks(business_id);
+
+      CREATE TABLE IF NOT EXISTS products (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        title VARCHAR(255) NOT NULL,
+        sku VARCHAR(100),
+        bar_code VARCHAR(100),
+        description TEXT,
+        main_image VARCHAR(255),
+        gallery_images JSONB,
+        purchase_price NUMERIC(12, 2) DEFAULT 0,
+        sale_price NUMERIC(12, 2) DEFAULT 0,
+        stock_qty VARCHAR(100),
+        category_ids JSONB,
+        brand_id BIGINT REFERENCES brands(id) ON DELETE SET NULL,
+        brand_uuid VARCHAR(64),
+        supplier_id BIGINT REFERENCES suppliers(id) ON DELETE SET NULL,
+        supplier_uuid VARCHAR(64),
+        tags JSONB,
+        product_type VARCHAR(100),
+        unit VARCHAR(50),
+        status VARCHAR(50) DEFAULT 'active',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_products_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_products_biz ON products(business_id);
+
+      -- Tier 4: Transaction headers
+      CREATE TABLE IF NOT EXISTS amroza_sales (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        date DATE NOT NULL,
+        merchant_id BIGINT REFERENCES merchants(id) ON DELETE CASCADE,
+        merchant_uuid VARCHAR(64),
+        item_id BIGINT REFERENCES items(id) ON DELETE CASCADE,
+        item_uuid VARCHAR(64),
+        nag INTEGER DEFAULT 0,
+        weight NUMERIC(10, 2) DEFAULT 0,
+        rate NUMERIC(10, 2) DEFAULT 0,
+        bardana NUMERIC(10, 2) DEFAULT 0,
+        gross_amount NUMERIC(12, 2) DEFAULT 0,
+        payment_type VARCHAR(20) DEFAULT 'udhaar',
+        cash_received NUMERIC(12, 2) DEFAULT 0,
+        udhaar_amount NUMERIC(12, 2) DEFAULT 0,
+        consignment_id BIGINT,
+        year INTEGER DEFAULT 2026,
+        created_by VARCHAR(64),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_amroza_sales_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_amroza_sales_biz ON amroza_sales(business_id, date);
+
+      CREATE TABLE IF NOT EXISTS merchant_receipts (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        date DATE NOT NULL,
+        merchant_id BIGINT REFERENCES merchants(id) ON DELETE CASCADE,
+        merchant_uuid VARCHAR(64),
+        amount NUMERIC(12, 2) DEFAULT 0,
+        type VARCHAR(30) DEFAULT 'recovery',
+        note VARCHAR(255),
+        year INTEGER DEFAULT 2026,
+        created_by VARCHAR(64),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_merchant_receipts_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_merchant_receipts_biz ON merchant_receipts(business_id, date);
+
+      CREATE TABLE IF NOT EXISTS farmer_bills (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        date DATE NOT NULL,
+        farmer_id BIGINT REFERENCES farmers(id) ON DELETE CASCADE,
+        farmer_uuid VARCHAR(64),
+        farmer_mark_id BIGINT REFERENCES farmer_marks(id) ON DELETE SET NULL,
+        farmer_mark_uuid VARCHAR(64),
+        truck_no VARCHAR(100),
+        item_id BIGINT REFERENCES items(id) ON DELETE CASCADE,
+        item_uuid VARCHAR(64),
+        nag INTEGER DEFAULT 0,
+        weight NUMERIC(10, 2) DEFAULT 0,
+        rate NUMERIC(10, 2) DEFAULT 0,
+        commission_pct NUMERIC(5, 2) DEFAULT 6,
+        bardana_per_nag NUMERIC(10, 2) DEFAULT 0,
+        gross_amount NUMERIC(12, 2) DEFAULT 0,
+        commission_amount NUMERIC(12, 2) DEFAULT 0,
+        bardana_amount NUMERIC(12, 2) DEFAULT 0,
+        kiraya NUMERIC(10, 2) DEFAULT 0,
+        mazdoori NUMERIC(10, 2) DEFAULT 0,
+        market_fee NUMERIC(10, 2) DEFAULT 0,
+        net_amount NUMERIC(12, 2) DEFAULT 0,
+        paid_amount NUMERIC(12, 2) DEFAULT 0,
+        note VARCHAR(255),
+        created_by VARCHAR(64),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_farmer_bills_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_farmer_bills_biz ON farmer_bills(business_id, date);
+
+      CREATE TABLE IF NOT EXISTS investment_transactions (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        ref_no VARCHAR(100) NOT NULL,
+        date DATE NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        partner_id BIGINT REFERENCES investment_partners(id) ON DELETE SET NULL,
+        partner_uuid VARCHAR(64),
+        loan_id BIGINT REFERENCES investment_loans(id) ON DELETE SET NULL,
+        loan_uuid VARCHAR(64),
+        surplus_id BIGINT REFERENCES investment_surplus(id) ON DELETE SET NULL,
+        surplus_uuid VARCHAR(64),
+        party_name VARCHAR(255) NOT NULL,
+        amount NUMERIC(14, 2) NOT NULL,
+        payment_method VARCHAR(50) DEFAULT 'cash',
+        bank_name VARCHAR(100),
+        reason VARCHAR(255),
+        is_advance BOOLEAN DEFAULT FALSE,
+        advance_amount NUMERIC(14, 2) DEFAULT 0,
+        approval_status VARCHAR(50) DEFAULT 'posted',
+        approved_by VARCHAR(100),
+        approved_at TIMESTAMPTZ,
+        created_by_role VARCHAR(50) DEFAULT 'munshi',
+        created_by_user_id VARCHAR(64),
+        is_reversed BOOLEAN DEFAULT FALSE,
+        reversal_reason VARCHAR(255),
+        reversal_ref_no VARCHAR(100),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT uq_investment_transactions_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_investment_transactions_biz ON investment_transactions(business_id, date);
+
+      CREATE TABLE IF NOT EXISTS purchases (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        date DATE NOT NULL,
+        reference VARCHAR(100) NOT NULL,
+        supplier_id BIGINT REFERENCES suppliers(id) ON DELETE SET NULL,
+        supplier_uuid VARCHAR(64),
+        tax_percentage NUMERIC(5, 2) DEFAULT 0,
+        tax_amount NUMERIC(12, 2) DEFAULT 0,
+        discount_amount NUMERIC(12, 2) DEFAULT 0,
+        shipping_amount NUMERIC(12, 2) DEFAULT 0,
+        total_amount NUMERIC(12, 2) DEFAULT 0,
+        paid_amount NUMERIC(12, 2) DEFAULT 0,
+        due_amount NUMERIC(12, 2) DEFAULT 0,
+        status VARCHAR(50),
+        payment_status VARCHAR(50),
+        payment_method VARCHAR(50),
+        type VARCHAR(50) DEFAULT 'unofficial',
+        note TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_purchases_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_purchases_biz ON purchases(business_id, date);
+
+      CREATE TABLE IF NOT EXISTS sales (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        date DATE NOT NULL,
+        reference VARCHAR(100) NOT NULL,
+        customer_id BIGINT REFERENCES customers(id) ON DELETE SET NULL,
+        customer_uuid VARCHAR(64),
+        tax_percentage NUMERIC(5, 2) DEFAULT 0,
+        tax_amount NUMERIC(12, 2) DEFAULT 0,
+        discount_amount NUMERIC(12, 2) DEFAULT 0,
+        shipping_amount NUMERIC(12, 2) DEFAULT 0,
+        total_amount NUMERIC(12, 2) DEFAULT 0,
+        paid_amount NUMERIC(12, 2) DEFAULT 0,
+        due_amount NUMERIC(12, 2) DEFAULT 0,
+        status VARCHAR(50),
+        payment_status VARCHAR(50),
+        payment_method VARCHAR(50),
+        note TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_sales_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_sales_biz ON sales(business_id, date);
+
+      CREATE TABLE IF NOT EXISTS purchase_returns (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        reference VARCHAR(100),
+        purchase_id BIGINT REFERENCES purchases(id) ON DELETE CASCADE,
+        purchase_uuid VARCHAR(64),
+        purchase_detail_id BIGINT,
+        purchase_detail_uuid VARCHAR(64),
+        employee_id BIGINT REFERENCES employees(id) ON DELETE SET NULL,
+        employee_uuid VARCHAR(64),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_purchase_returns_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_purchase_returns_biz ON purchase_returns(business_id);
+
+      CREATE TABLE IF NOT EXISTS sale_returns (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        reference VARCHAR(100),
+        sale_id BIGINT REFERENCES sales(id) ON DELETE CASCADE,
+        sale_uuid VARCHAR(64),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+        CONSTRAINT uq_sale_returns_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_sale_returns_biz ON sale_returns(business_id);
+
+      -- Tier 5: Transaction details & logs
+      CREATE TABLE IF NOT EXISTS purchase_details (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        purchase_id BIGINT REFERENCES purchases(id) ON DELETE CASCADE,
+        purchase_uuid VARCHAR(64),
+        product_id BIGINT REFERENCES products(id) ON DELETE SET NULL,
+        product_uuid VARCHAR(64),
+        qty INTEGER NOT NULL DEFAULT 1,
+        price NUMERIC(12, 2) DEFAULT 0,
+        sub_total NUMERIC(12, 2) DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT uq_purchase_details_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_purchase_details_biz ON purchase_details(business_id);
+
+      CREATE TABLE IF NOT EXISTS purchase_payments (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        purchase_id BIGINT REFERENCES purchases(id) ON DELETE CASCADE,
+        purchase_uuid VARCHAR(64),
+        date DATE NOT NULL,
+        amount NUMERIC(12, 2) DEFAULT 0,
+        reference VARCHAR(100),
+        payment_method VARCHAR(50),
+        note TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT uq_purchase_payments_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_purchase_payments_biz ON purchase_payments(business_id);
+
+      CREATE TABLE IF NOT EXISTS sale_details (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        sale_id BIGINT REFERENCES sales(id) ON DELETE CASCADE,
+        sale_uuid VARCHAR(64),
+        product_id BIGINT REFERENCES products(id) ON DELETE SET NULL,
+        product_uuid VARCHAR(64),
+        qty INTEGER NOT NULL DEFAULT 1,
+        price NUMERIC(12, 2) DEFAULT 0,
+        sub_total NUMERIC(12, 2) DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT uq_sale_details_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_sale_details_biz ON sale_details(business_id);
+
+      CREATE TABLE IF NOT EXISTS sale_payments (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        sale_id BIGINT REFERENCES sales(id) ON DELETE CASCADE,
+        sale_uuid VARCHAR(64),
+        date DATE NOT NULL,
+        amount NUMERIC(12, 2) DEFAULT 0,
+        reference VARCHAR(100),
+        payment_method VARCHAR(50),
+        note TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT uq_sale_payments_biz_uuid UNIQUE (business_id, uuid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_sale_payments_biz ON sale_payments(business_id);
+
+      CREATE TABLE IF NOT EXISTS purchse_return_details (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        purchase_return_id BIGINT REFERENCES purchase_returns(id) ON DELETE CASCADE,
+        purchase_return_uuid VARCHAR(64),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT uq_purchse_return_details_biz_uuid UNIQUE (business_id, uuid)
+      );
+
+      CREATE TABLE IF NOT EXISTS sale_return_details (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        sale_return_id BIGINT REFERENCES sale_returns(id) ON DELETE CASCADE,
+        sale_return_uuid VARCHAR(64),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT uq_sale_return_details_biz_uuid UNIQUE (business_id, uuid)
+      );
+
+      CREATE TABLE IF NOT EXISTS investment_audit_logs (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        action VARCHAR(255) NOT NULL,
+        transaction_id BIGINT REFERENCES investment_transactions(id) ON DELETE SET NULL,
+        transaction_uuid VARCHAR(64),
+        ref_no VARCHAR(100),
+        user_name VARCHAR(255) NOT NULL,
+        user_role VARCHAR(50) NOT NULL,
+        details TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT uq_investment_audit_logs_biz_uuid UNIQUE (business_id, uuid)
+      );
+
+      CREATE TABLE IF NOT EXISTS investment_alerts (
+        id BIGSERIAL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL,
+        business_id VARCHAR(64) NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        partner_id BIGINT REFERENCES investment_partners(id) ON DELETE SET NULL,
+        partner_uuid VARCHAR(64),
+        partner_name VARCHAR(255) NOT NULL,
+        attempted_amount NUMERIC(14, 2) NOT NULL,
+        excess_amount NUMERIC(14, 2) NOT NULL,
+        resolved BOOLEAN DEFAULT FALSE,
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT uq_investment_alerts_biz_uuid UNIQUE (business_id, uuid)
+      );
+    `);
+
+    await client.query(`
+      INSERT INTO migrations (name)
+      VALUES ('006_pos_central_data_replication_tables')
+      ON CONFLICT (name) DO NOTHING;
+    `);
+
+    // 9. Migration 007: Role Simplification & Legacy Role Migration (Admin & Employee only)
+    await client.query(`
+      UPDATE users SET role = 'Employee' WHERE LOWER(role) IN ('manager', 'cashier', 'accountant');
+      UPDATE invitations SET role = 'Employee' WHERE LOWER(role) IN ('manager', 'cashier', 'accountant');
+    `);
+
+    await client.query(`
+      INSERT INTO migrations (name)
+      VALUES ('007_role_simplification_and_migration')
+      ON CONFLICT (name) DO NOTHING;
+    `);
+
     await client.query('COMMIT');
     console.log('[Migration] Database migration & seeding completed successfully.');
   } catch (error) {

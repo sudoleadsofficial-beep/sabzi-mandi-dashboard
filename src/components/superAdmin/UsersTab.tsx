@@ -35,7 +35,7 @@ export const UsersTab: React.FC = () => {
   const [editingUser, setEditingUser] = useState<AppUser | null>(null);
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
-  const [editRole, setEditRole] = useState<string>('Cashier');
+  const [editRole, setEditRole] = useState<string>('Employee');
   const [userToDelete, setUserToDelete] = useState<AppUser | null>(null);
 
   const filteredUsers = users.filter((u) => {
@@ -46,7 +46,9 @@ export const UsersTab: React.FC = () => {
       (u.createdBy && u.createdBy.toLowerCase().includes(search.toLowerCase()));
 
     const matchesBusiness = businessFilter === 'ALL' || u.businessId === businessFilter;
-    const matchesRole = roleFilter === 'ALL' || u.role.toUpperCase() === roleFilter.toUpperCase();
+    const isEmp = u.role.toUpperCase() !== 'SUPER_ADMIN' && u.role.toUpperCase() !== 'CUSTOMER_ADMIN' && u.role.toUpperCase() !== 'ADMIN';
+    const matchesRole = roleFilter === 'ALL' ||
+      (roleFilter === 'Employee' ? isEmp : u.role.toUpperCase() === roleFilter.toUpperCase());
     const matchesStatus = statusFilter === 'ALL' || u.status === statusFilter;
 
     return matchesSearch && matchesBusiness && matchesRole && matchesStatus;
@@ -79,10 +81,16 @@ export const UsersTab: React.FC = () => {
   const getRoleBadgeVariant = (role: string) => {
     const norm = role.toUpperCase();
     if (norm === 'SUPER_ADMIN') return 'purple';
-    if (norm === 'CUSTOMER_ADMIN') return 'green';
-    if (norm === 'MANAGER') return 'blue';
-    if (norm === 'ACCOUNTANT') return 'yellow';
-    return 'gray';
+    if (norm === 'CUSTOMER_ADMIN' || norm === 'ADMIN') return 'green';
+    return 'blue';
+  };
+
+  const getRoleDisplayName = (role: string) => {
+    const norm = role.toUpperCase();
+    if (norm === 'SUPER_ADMIN') return 'Super Admin';
+    if (norm === 'CUSTOMER_ADMIN') return 'Customer Admin';
+    if (norm === 'ADMIN') return 'Admin';
+    return 'Employee';
   };
 
   return (
@@ -154,10 +162,8 @@ export const UsersTab: React.FC = () => {
               <option value="ALL">All Roles</option>
               <option value="SUPER_ADMIN">Super Admin</option>
               <option value="CUSTOMER_ADMIN">Customer Admin</option>
-              <option value="Manager">Manager</option>
-              <option value="Cashier">Cashier</option>
-              <option value="Accountant">Accountant</option>
               <option value="Admin">Admin</option>
+              <option value="Employee">Employee</option>
             </select>
           </div>
 
@@ -237,9 +243,7 @@ export const UsersTab: React.FC = () => {
                     {/* Role */}
                     <td className="px-4 py-3.5">
                       <Badge variant={getRoleBadgeVariant(u.role)} size="sm">
-                        {u.role === 'SUPER_ADMIN' ? 'Super Admin' :
-                         u.role === 'CUSTOMER_ADMIN' ? 'Customer Admin' :
-                         u.role}
+                        {getRoleDisplayName(u.role)}
                       </Badge>
                     </td>
 
@@ -391,10 +395,8 @@ export const UsersTab: React.FC = () => {
                 className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm"
               >
                 <option value="CUSTOMER_ADMIN">Customer Admin</option>
-                <option value="Manager">Manager</option>
-                <option value="Cashier">Cashier</option>
-                <option value="Accountant">Accountant</option>
                 <option value="Admin">Admin</option>
+                <option value="Employee">Employee</option>
               </select>
             </div>
 

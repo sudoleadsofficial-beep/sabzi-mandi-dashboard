@@ -8,39 +8,60 @@ import { createNotification } from '../services/notificationService.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'pos-mandi-super-secret-jwt-key-2026-production';
 
-function getRolePermissions(role: string): string[] {
-  const normalized = (role || '').toUpperCase();
-  switch (normalized) {
-    case 'MANAGER':
-      return [
-        'pos.sales.create',
-        'pos.sales.view_all',
-        'pos.sales.edit',
-        'pos.inventory.manage',
-        'pos.receipts.manage',
-        'pos.credit.manage',
-        'pos.reports.view',
-        'pos.offline.sync',
-      ];
-    case 'ACCOUNTANT':
-      return [
-        'pos.sales.view_all',
-        'pos.reports.view',
-        'pos.ledger.view',
-        'pos.credit.manage',
-        'pos.receipts.view',
-        'pos.offline.sync',
-      ];
-    case 'CASHIER':
-    default:
-      return [
-        'pos.sales.create',
-        'pos.sales.view_own',
-        'pos.receipts.print',
-        'pos.inventory.view',
-        'pos.offline.sync',
-      ];
+export const ALL_POS_FEATURE_KEYS = [
+  'new_sale',
+  'wasooli',
+  'stock_management',
+  'customers',
+  'farmers',
+  'bank_accounts',
+  'deposit_transfer',
+  'cheques',
+  'investment_capital',
+  'merchant_khata',
+  'farmer_khata',
+  'reports',
+  'expiry_gifts',
+  'discount_rules',
+  'backup_restore',
+];
+
+export const DEFAULT_EMPLOYEE_FEATURES = [
+  'new_sale',
+  'wasooli',
+  'stock_management',
+  'customers',
+  'farmers',
+  'merchant_khata',
+  'farmer_khata',
+];
+
+export async function getBusinessRolePermissions(businessId: string | null | undefined, role: string): Promise<string[]> {
+  const normRole = (role || '').trim().toUpperCase();
+  if (normRole === 'ADMIN' || normRole === 'CUSTOMER_ADMIN' || normRole === 'SUPER_ADMIN' || normRole === 'OWNER') {
+    return [...ALL_POS_FEATURE_KEYS];
   }
+
+  if (!businessId) {
+    return [...DEFAULT_EMPLOYEE_FEATURES];
+  }
+
+  try {
+    const res = await pool.query('SELECT settings FROM businesses WHERE id = $1', [businessId]);
+    if (res.rows.length > 0 && res.rows[0].settings) {
+      const rolePermissions = res.rows[0].settings.rolePermissions;
+      if (Array.isArray(rolePermissions)) {
+        const empRole = rolePermissions.find((r: any) => (r.name || '').toLowerCase() === 'employee');
+        if (empRole && Array.isArray(empRole.allowedFeatures)) {
+          return empRole.allowedFeatures.filter((f: string) => ALL_POS_FEATURE_KEYS.includes(f));
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[POS Auth] Error reading role permissions from DB:', err);
+  }
+
+  return [...DEFAULT_EMPLOYEE_FEATURES];
 }
 
 /**
@@ -384,7 +405,7 @@ export async function activate(req: Request, res: Response, next: NextFunction):
         city: invite.business_city,
         mandiLocation: invite.mandi_location,
       },
-      permissions: getRolePermissions(user.role),
+      permissions: await getBusinessRolePermissions(invite.business_id, user.role),
     });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -492,7 +513,7 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
         city: user.business_city,
         mandiLocation: user.mandi_location,
       },
-      permissions: getRolePermissions(user.role),
+      permissions: await getBusinessRolePermissions(user.business_id, user.role),
     });
   } catch (error) {
     next(error);
@@ -531,7 +552,7 @@ export async function getPosSyncData(req: Request, res: Response, next: NextFunc
         email: req.user?.email,
         role: req.user?.role,
       },
-      permissions: getRolePermissions(req.user?.role || ''),
+      permissions: await getBusinessRolePermissions(businessId, req.user?.role || ''),
       syncedAt: new Date().toISOString(),
     });
   } catch (error) {

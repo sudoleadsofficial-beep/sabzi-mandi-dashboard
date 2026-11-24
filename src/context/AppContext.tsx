@@ -13,6 +13,7 @@ import {
   AppNotification 
 } from '../types';
 import { initialRolesPermissions } from '../data/mockData';
+import { normalizeRolesPermissions, ALL_FEATURE_IDS } from '../constants/posFeatures';
 
 export interface ToastMessage {
   id: string;
@@ -125,11 +126,11 @@ interface AppContextType {
   updateSubscription: (id: string, updates: Partial<Subscription>) => void;
   triggerSyncRetry: (id: string) => void;
 
-  sendInvitation: (employeeName: string, email: string, assignedRole: 'Admin' | 'Manager' | 'Cashier' | 'Accountant' | string) => Promise<InvitationSendResult>;
+  sendInvitation: (employeeName: string, email: string, assignedRole: 'Admin' | 'Employee' | string) => Promise<InvitationSendResult>;
   cancelInvitation: (id: string) => Promise<void>;
   resendInvitation: (id: string) => Promise<InvitationSendResult>;
 
-  updateRolePermissions: (roleId: string, updatedPermissions: RolePermission['permissions']) => void;
+  updateRolePermissions: (roleId: string, allowedFeatures: string[]) => Promise<boolean>;
   updateCompanyProfile: (updates: Partial<CompanyProfile>) => Promise<void>;
   updateBusinessSettings: (settings: any) => Promise<boolean>;
 
@@ -468,6 +469,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               totalCounters: b.totalCounters || 1,
               settings: b.settings || {},
             });
+
+            if (b.settings?.rolePermissions) {
+              setRolesPermissions(normalizeRolesPermissions(b.settings.rolePermissions));
+            }
           }
         })
         .catch((err) => console.warn('Could not load company profile from DB:', err));
@@ -832,7 +837,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const sendInvitation = async (
     employeeName: string,
     email: string,
-    assignedRole: 'Admin' | 'Manager' | 'Cashier' | 'Accountant' | string
+    assignedRole: 'Admin' | 'Employee' | string = 'Employee'
   ): Promise<InvitationSendResult> => {
     try {
       const targetBusinessId = currentUser?.companyId || '';
@@ -954,11 +959,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const updateRolePermissions = (roleId: string, updatedPermissions: RolePermission['permissions']) => {
-    setRolesPermissions((prev) =>
-      prev.map((r) => (r.id === roleId ? { ...r, permissions: updatedPermissions } : r))
-    );
-    showToast('Role permissions updated successfully', 'success');
+  const updateRolePermissions = async (roleId: string, allowedFeatures: string[]): Promise<boolean> => {
+    // 1. Calculate updated roles ensuring Admin always has full access to all features
+    const updatedRoles = rolesPermissions.map((r) => {
+      if (r.id === 'role-admin' || r.name.toLowerCase() === 'admin') {
+        return {
+          ...r,
+          isSystemRole: true,
+          allowedFeatures: ALL_FEATURE_IDS,
+        };
+      }
+      if (r.id === roleId || r.name.toLowerCase() === roleId.toLowerCase()) {
+        return {
+          ...r,
+          allowedFeatures: allowedFeatures,
+        };
+      }
+      return r;
+    });
+
+    setRolesPermissions(updatedRoles);
+
+    const targetId = currentUser?.companyId || companyProfile.id;
+    if (!targetId) {
+      showToast('Permissions updated locally', 'info');
+      return true;
+    }
+
+    try {
+      const res = await fetch(`/api/businesses/${targetId}/permissions`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ rolePermissions: updatedRoles }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('Permissions updated and saved to database', 'success');
+        if (data.rolePermissions) {
+          setRolesPermissions(normalizeRolesPermissions(data.rolePermissions));
+        }
+        setCompanyProfile((prev) => ({
+          ...prev,
+          settings: {
+            ...(prev.settings || {}),
+            rolePermissions: updatedRoles,
+          },
+        }));
+        await refreshAuditLogs();
+        return true;
+      } else {
+        showToast(data.message || 'Failed to save permissions to database', 'error');
+        return false;
+      }
+    } catch (err) {
+      console.error('Error saving permissions to database:', err);
+      showToast('Network error saving permissions', 'error');
+      return false;
+    }
   };
 
   const updateCompanyProfile = async (updates: Partial<CompanyProfile>) => {

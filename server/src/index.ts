@@ -14,6 +14,7 @@ import { notificationRouter } from './routes/notificationRoutes.js';
 import { auditRouter } from './routes/auditRoutes.js';
 import { deviceRouter } from './routes/deviceRoutes.js';
 import { posAuthRouter } from './routes/posAuthRoutes.js';
+import { syncRouter } from './routes/syncRoutes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -67,6 +68,8 @@ app.use('/api/notifications', notificationRouter);
 app.use('/api/audit-logs', auditRouter);
 app.use('/api/devices', deviceRouter);
 app.use('/api/pos/auth', posAuthRouter);
+app.use('/api/v1/sync', syncRouter);
+app.use('/api/sync', syncRouter);
 
 // Root fallback / information
 app.get('/', (req, res) => {
@@ -147,4 +150,9 @@ async function startServer() {
   }
 }
 
-startServer();
+export { app, startServer };
+
+const isMain = process.argv[1]?.replace(/\\/g, '/').includes('index.');
+if (isMain) {
+  startServer();
+}

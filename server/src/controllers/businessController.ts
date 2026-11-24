@@ -12,7 +12,7 @@ export async function getBusinesses(req: Request, res: Response, next: NextFunct
     const callerBusinessId = req.user?.businessId || (req.headers['x-user-business-id'] as string) || '';
 
     let targetBusinessId = businessId;
-    if (callerRole === 'CUSTOMER_ADMIN' || callerRole === 'MANAGER' || callerRole === 'CASHIER' || callerRole === 'ACCOUNTANT') {
+    if (callerRole === 'CUSTOMER_ADMIN' || callerRole === 'EMPLOYEE' || callerRole === 'MANAGER' || callerRole === 'CASHIER' || callerRole === 'ACCOUNTANT') {
       if (!callerBusinessId) {
         res.status(403).json({ success: false, message: 'Forbidden: Missing business authorization.' });
         return;
@@ -468,6 +468,193 @@ export async function updateBusinessSettings(req: Request, res: Response, next: 
     });
 
     res.status(200).json({ success: true, message: 'Settings saved to database successfully.', settings: result.rows[0].settings });
+  } catch (error) {
+    next(error);
+  }
+}
+
+const ALL_POS_FEATURE_IDS = [
+  'new_sale',
+  'wasooli',
+  'stock_management',
+  'customers',
+  'farmers',
+  'bank_accounts',
+  'deposit_transfer',
+  'cheques',
+  'investment_capital',
+  'merchant_khata',
+  'farmer_khata',
+  'reports',
+  'expiry_gifts',
+  'discount_rules',
+  'backup_restore',
+];
+
+const DEFAULT_EMPLOYEE_FEATURES = [
+  'new_sale',
+  'wasooli',
+  'stock_management',
+  'customers',
+  'farmers',
+  'merchant_khata',
+  'farmer_khata',
+];
+
+export async function getBusinessPermissions(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = String(req.params.id);
+    const callerRole = (req.user?.role || '').trim().toUpperCase();
+    const callerBusinessId = req.user?.businessId || '';
+
+    if (callerRole === 'CUSTOMER_ADMIN' && callerBusinessId !== id) {
+      res.status(403).json({ success: false, message: "Forbidden: You cannot view another business's permissions." });
+      return;
+    }
+
+    const result = await pool.query(`SELECT id, name, settings FROM businesses WHERE id = $1`, [id]);
+    if (result.rows.length === 0) {
+      res.status(404).json({ success: false, message: 'Business not found.' });
+      return;
+    }
+
+    const settings = result.rows[0].settings || {};
+    let rolePermissions = settings.rolePermissions;
+
+    if (!rolePermissions || !Array.isArray(rolePermissions)) {
+      rolePermissions = [
+        {
+          id: 'role-admin',
+          name: 'Admin',
+          description: 'Full access to all POS features. Admin access is permanent and cannot be restricted.',
+          isSystemRole: true,
+          allowedFeatures: ALL_POS_FEATURE_IDS,
+        },
+        {
+          id: 'role-employee',
+          name: 'Employee',
+          description: 'Access only to the features enabled by the Admin.',
+          isSystemRole: false,
+          allowedFeatures: DEFAULT_EMPLOYEE_FEATURES,
+        },
+      ];
+    } else {
+      // Ensure Admin always has full access
+      rolePermissions = rolePermissions.map((r: any) => {
+        if (r.id === 'role-admin' || (r.name && r.name.toLowerCase() === 'admin')) {
+          return {
+            ...r,
+            isSystemRole: true,
+            allowedFeatures: ALL_POS_FEATURE_IDS,
+          };
+        }
+        return r;
+      });
+    }
+
+    res.status(200).json({ success: true, rolePermissions });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateBusinessPermissions(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = String(req.params.id);
+    const callerRole = (req.user?.role || '').trim().toUpperCase();
+    const callerBusinessId = req.user?.businessId || '';
+
+    if (callerRole === 'CUSTOMER_ADMIN' && callerBusinessId !== id) {
+      res.status(403).json({ success: false, message: "Forbidden: You cannot modify another business's permissions." });
+      return;
+    }
+
+    const { rolePermissions } = req.body;
+    if (!rolePermissions || !Array.isArray(rolePermissions)) {
+      res.status(400).json({ success: false, message: 'Invalid rolePermissions data.' });
+      return;
+    }
+
+    // Enforce Admin role always retains full access to all features (cannot remove own access)
+    const sanitizedRoles = rolePermissions.map((r: any) => {
+      if (r.id === 'role-admin' || (r.name && r.name.toLowerCase() === 'admin')) {
+        return {
+          id: 'role-admin',
+          name: 'Admin',
+          description: 'Full access to all POS features. Admin access is permanent and cannot be restricted.',
+          isSystemRole: true,
+          allowedFeatures: ALL_POS_FEATURE_IDS,
+        };
+      }
+      return {
+        id: 'role-employee',
+        name: 'Employee',
+        description: 'Access only to the features enabled by the Admin.',
+        isSystemRole: false,
+        allowedFeatures: Array.isArray(r.allowedFeatures)
+          ? r.allowedFeatures.filter((fId: string) => ALL_POS_FEATURE_IDS.includes(fId))
+          : [],
+      };
+    });
+
+    // Make sure both Admin and Employee exist
+    if (!sanitizedRoles.some((r: any) => r.id === 'role-admin')) {
+      sanitizedRoles.unshift({
+        id: 'role-admin',
+        name: 'Admin',
+        description: 'Full access to all POS features. Admin access is permanent and cannot be restricted.',
+        isSystemRole: true,
+        allowedFeatures: ALL_POS_FEATURE_IDS,
+      });
+    }
+    if (!sanitizedRoles.some((r: any) => r.id === 'role-employee')) {
+      sanitizedRoles.push({
+        id: 'role-employee',
+        name: 'Employee',
+        description: 'Access only to the features enabled by the Admin.',
+        isSystemRole: false,
+        allowedFeatures: DEFAULT_EMPLOYEE_FEATURES,
+      });
+    }
+
+    // Update in database JSONB settings
+    const result = await pool.query(
+      `
+      UPDATE businesses
+      SET
+        settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{rolePermissions}', $1::jsonb),
+        updated_at = NOW()
+      WHERE id = $2
+      RETURNING id, name, settings;
+      `,
+      [JSON.stringify(sanitizedRoles), id]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ success: false, message: 'Business not found.' });
+      return;
+    }
+
+    await recordAuditLog({
+      actorId: req.user?.id,
+      actorName: req.user?.name || 'Administrator',
+      actorRole: req.user?.role || 'CUSTOMER_ADMIN',
+      action: 'Role Permissions Updated',
+      targetEntity: 'Roles & Permissions',
+      targetId: id,
+      businessId: id,
+      businessName: result.rows[0].name,
+      details: 'Updated Employee role POS feature access checklist.',
+      category: 'Security',
+      ipAddress: req.ip,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Role permissions saved to database successfully.',
+      rolePermissions: sanitizedRoles,
+      settings: result.rows[0].settings,
+    });
   } catch (error) {
     next(error);
   }

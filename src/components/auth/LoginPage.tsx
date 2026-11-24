@@ -210,7 +210,7 @@ export const LoginPage: React.FC = () => {
             </div>
             <h3 className="text-base font-bold text-slate-900">Reset Password</h3>
             <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-              To reset your credentials or recover access, please contact your platform administrator or shop manager.
+              To reset your credentials or recover access, please contact your administrator.
             </p>
             <div className="mt-5">
               <Button

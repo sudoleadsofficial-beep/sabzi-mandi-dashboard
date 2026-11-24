@@ -24,7 +24,7 @@ export const InviteUserModal: React.FC<InviteUserModalProps> = ({ isOpen, onClos
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<'Admin' | 'Manager' | 'Cashier' | 'Accountant'>('Cashier');
+  const [role, setRole] = useState<'Admin' | 'Employee'>('Employee');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [result, setResult] = useState<{
@@ -37,7 +37,7 @@ export const InviteUserModal: React.FC<InviteUserModalProps> = ({ isOpen, onClos
   const handleReset = () => {
     setName('');
     setEmail('');
-    setRole('Cashier');
+    setRole('Employee');
     setIsSubmitting(false);
     setResult(null);
     setCopiedLink(false);
@@ -211,10 +211,8 @@ export const InviteUserModal: React.FC<InviteUserModalProps> = ({ isOpen, onClos
                 onChange={(e) => setRole(e.target.value as any)}
                 className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 cursor-pointer"
               >
-                <option value="Cashier">Cashier (Boli billing, daily cash entry, receipt print)</option>
-                <option value="Manager">Manager (Supervise auction lots, pricing, staff)</option>
-                <option value="Accountant">Accountant (Ledgers, roznamcha, balance reconciliation)</option>
-                <option value="Admin">Admin (Shop operations &amp; terminal management)</option>
+                <option value="Employee">Employee (Access only to features enabled by Admin)</option>
+                <option value="Admin">Admin (Full access to all POS features)</option>
               </select>
             </div>
           </div>

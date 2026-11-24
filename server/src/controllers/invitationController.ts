@@ -9,6 +9,17 @@ import { createNotification } from '../services/notificationService.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'pos-mandi-super-secret-jwt-key-2026-production';
 
+export function normalizeAssignedRole(rawRole: string): string {
+  const norm = (rawRole || '').trim().toUpperCase();
+  if (norm === 'ADMIN' || norm === 'CUSTOMER_ADMIN') {
+    return 'Admin';
+  }
+  if (norm === 'SUPER_ADMIN') {
+    return 'SUPER_ADMIN';
+  }
+  return 'Employee';
+}
+
 export async function sendInvitation(req: Request, res: Response, next: NextFunction): Promise<void> {
   const client = await pool.connect();
   try {
@@ -16,11 +27,13 @@ export async function sendInvitation(req: Request, res: Response, next: NextFunc
       businessId, 
       email, 
       name, 
-      role = 'Cashier', 
+      role = 'Employee', 
       invitedById, 
       invitedByName, 
       invitedByRole 
     } = req.body;
+
+    const normalizedRole = normalizeAssignedRole(role);
 
     const callerRole = req.user?.role || (req.headers['x-user-role'] as string) || '';
     const callerBusinessId = req.user?.businessId || (req.headers['x-user-business-id'] as string) || '';
@@ -110,7 +123,7 @@ export async function sendInvitation(req: Request, res: Response, next: NextFunc
         businessId,
         targetName,
         targetEmail,
-        role,
+        normalizedRole,
         invitedById || null,
         finalInvitedByName,
         finalInvitedByRole,
@@ -133,7 +146,7 @@ export async function sendInvitation(req: Request, res: Response, next: NextFunc
       businessName: business.name,
       invitationUrl: inviteUrl,
       expiresAt,
-      role,
+      role: normalizedRole,
       invitedByName: finalInvitedByName,
     });
 
@@ -152,7 +165,7 @@ export async function sendInvitation(req: Request, res: Response, next: NextFunc
       businessId,
       targetEmail,
       targetName,
-      role,
+      normalizedRole,
       token,
       expiresAt,
       invitedById || null,
@@ -173,7 +186,7 @@ export async function sendInvitation(req: Request, res: Response, next: NextFunc
       targetId: invitationId,
       businessId,
       businessName: business.name,
-      details: `Issued invitation to ${targetName} (${targetEmail}) for role ${role}.`,
+      details: `Issued invitation to ${targetName} (${targetEmail}) for role ${normalizedRole}.`,
       category: 'Invitation',
       ipAddress: req.ip,
     });
@@ -182,7 +195,7 @@ export async function sendInvitation(req: Request, res: Response, next: NextFunc
       recipientRole: 'CUSTOMER_ADMIN',
       businessId,
       title: 'Staff Invitation Issued',
-      message: `An invitation token was issued for ${targetName} (${role}).`,
+      message: `An invitation token was issued for ${targetName} (${normalizedRole}).`,
       type: 'info',
     });
 
@@ -542,7 +555,7 @@ export async function acceptInvitation(req: Request, res: Response, next: NextFu
       invite.name.trim(),
       cleanEmail,
       passwordHash,
-      invite.role || 'CUSTOMER_ADMIN',
+      normalizeAssignedRole(invite.role || 'CUSTOMER_ADMIN'),
       invite.invited_by_id || null,
       createdByName,
       createdByRole,
@@ -748,7 +761,7 @@ export async function acceptEmployeeInvitation(req: Request, res: Response, next
         invite.business_id,
         invite.name.trim(),
         invite.email.trim().toLowerCase(),
-        invite.role,
+        normalizeAssignedRole(invite.role),
         invite.invited_by_id || null,
         invite.invited_by_name || 'Administrator',
         invite.invited_by_role || 'CUSTOMER_ADMIN',

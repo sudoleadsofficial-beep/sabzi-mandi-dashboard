@@ -1,10 +1,10 @@
-export type UserRole = 'SUPER_ADMIN' | 'CUSTOMER_ADMIN' | 'MANAGER' | 'CASHIER' | 'ACCOUNTANT' | string;
+export type UserRole = 'SUPER_ADMIN' | 'CUSTOMER_ADMIN' | 'Admin' | 'Employee' | string;
 
 export interface CurrentUser {
   id: string;
   name: string;
   email: string;
-  role: 'SUPER_ADMIN' | 'CUSTOMER_ADMIN' | 'MANAGER' | 'CASHIER' | 'ACCOUNTANT' | string;
+  role: 'SUPER_ADMIN' | 'CUSTOMER_ADMIN' | 'Admin' | 'Employee' | string;
   token?: string;
   avatar?: string;
   companyId?: string;
@@ -54,7 +54,7 @@ export interface AppUser {
   phone: string;
   businessId: string;
   businessName: string;
-  role: 'SUPER_ADMIN' | 'CUSTOMER_ADMIN' | 'Admin' | 'Manager' | 'Cashier' | 'Accountant' | string;
+  role: 'SUPER_ADMIN' | 'CUSTOMER_ADMIN' | 'Admin' | 'Employee' | string;
   status: AccountStatus;
   dateAdded: string;
   lastActive: string;
@@ -126,7 +126,7 @@ export interface Invitation {
   businessId: string;
   employeeName: string;
   email: string;
-  assignedRole: 'Admin' | 'Manager' | 'Cashier' | 'Accountant' | string;
+  assignedRole: 'Admin' | 'Employee' | string;
   invitationDate: string;
   expiryDate: string;
   status: InvitationStatus;
@@ -141,8 +141,10 @@ export interface RolePermission {
   id: string;
   name: string;
   description: string;
-  assignedEmployeesCount: number;
-  permissions: {
+  allowedFeatures: string[];
+  isSystemRole?: boolean;
+  assignedEmployeesCount?: number;
+  permissions?: {
     module: string;
     description: string;
     actions: {

@@ -38,7 +38,7 @@ export const InvitationsTab: React.FC<InvitationsTabProps> = ({ onOpenInvite }) 
   // Inline Quick Send State
   const [quickName, setQuickName] = useState('');
   const [quickEmail, setQuickEmail] = useState('');
-  const [quickRole, setQuickRole] = useState<'Admin' | 'Manager' | 'Cashier' | 'Accountant'>('Cashier');
+  const [quickRole, setQuickRole] = useState<'Admin' | 'Employee'>('Employee');
 
   // Search & Pagination
   const [search, setSearch] = useState('');
@@ -55,7 +55,7 @@ export const InvitationsTab: React.FC<InvitationsTabProps> = ({ onOpenInvite }) 
     sendInvitation(quickName.trim(), quickEmail.trim(), quickRole);
     setQuickName('');
     setQuickEmail('');
-    setQuickRole('Cashier');
+    setQuickRole('Employee');
   };
 
   const filteredInvitations = myInvitations.filter((i) => {
@@ -124,9 +124,7 @@ export const InvitationsTab: React.FC<InvitationsTabProps> = ({ onOpenInvite }) 
               onChange={(e) => setQuickRole(e.target.value as any)}
               className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs"
             >
-              <option value="Cashier">Cashier</option>
-              <option value="Manager">Manager</option>
-              <option value="Accountant">Accountant</option>
+              <option value="Employee">Employee</option>
               <option value="Admin">Admin</option>
             </select>
           </div>
@@ -216,7 +214,7 @@ export const InvitationsTab: React.FC<InvitationsTabProps> = ({ onOpenInvite }) 
 
                     <td className="px-4 py-4">
                       <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
-                        {inv.assignedRole}
+                        {inv.assignedRole?.toLowerCase() === 'admin' ? 'Admin' : 'Employee'}
                       </span>
                     </td>
 

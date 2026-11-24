@@ -4,7 +4,9 @@ import {
   createBusiness, 
   updateBusiness, 
   deleteBusiness, 
-  updateBusinessSettings 
+  updateBusinessSettings,
+  getBusinessPermissions,
+  updateBusinessPermissions
 } from '../controllers/businessController.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin, enforceBusinessIsolation } from '../middleware/authMiddleware.js';
 
@@ -17,3 +19,5 @@ businessRouter.post('/', requireSuperAdmin, createBusiness);
 businessRouter.put('/:id', enforceBusinessIsolation, updateBusiness);
 businessRouter.delete('/:id', requireSuperAdmin, deleteBusiness);
 businessRouter.put('/:id/settings', enforceBusinessIsolation, updateBusinessSettings);
+businessRouter.get('/:id/permissions', enforceBusinessIsolation, getBusinessPermissions);
+businessRouter.put('/:id/permissions', enforceBusinessIsolation, updateBusinessPermissions);

@@ -281,7 +281,7 @@ export const CustomerSettingsTab: React.FC = () => {
                 />
                 <div>
                   <span className="text-xs font-bold text-slate-900 block">Cash Drawer Discrepancy Alert</span>
-                  <span className="text-xs text-slate-500">Instant notification if physical cash reconciled by cashier differs from system total.</span>
+                  <span className="text-xs text-slate-500">Instant notification if physical cash reconciled by employee differs from system total.</span>
                 </div>
               </label>
 
@@ -294,7 +294,7 @@ export const CustomerSettingsTab: React.FC = () => {
                 />
                 <div>
                   <span className="text-xs font-bold text-slate-900 block">After-Hours Counter Login Alert</span>
-                  <span className="text-xs text-slate-500">Notify if any cashier logs onto a Mandi POS counter past 8:00 PM.</span>
+                  <span className="text-xs text-slate-500">Notify if any employee logs onto a Mandi POS counter past 8:00 PM.</span>
                 </div>
               </label>
             </div>
@@ -336,8 +336,8 @@ export const CustomerSettingsTab: React.FC = () => {
                 className="mt-0.5 w-4 h-4 text-emerald-700 rounded accent-emerald-700"
               />
               <div>
-                <span className="text-xs font-bold text-slate-900 block">Require Manager Authorization for Void Slips</span>
-                <span className="text-xs text-slate-500">Require Manager PIN approval on the POS terminal before any auction parchi can be cancelled or modified.</span>
+                <span className="text-xs font-bold text-slate-900 block">Require Admin Authorization for Void Slips</span>
+                <span className="text-xs text-slate-500">Require Admin PIN approval on the POS terminal before any auction parchi can be cancelled or modified.</span>
               </div>
             </label>
 

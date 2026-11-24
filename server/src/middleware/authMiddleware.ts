@@ -131,7 +131,7 @@ export function enforceBusinessIsolation(req: Request, res: Response, next: Next
   }
 
   // Customer Admin and business employees are strictly bound to their own business
-  if (role === 'CUSTOMER_ADMIN' || role === 'MANAGER' || role === 'CASHIER' || role === 'ACCOUNTANT') {
+  if (role === 'CUSTOMER_ADMIN' || role === 'EMPLOYEE' || role === 'MANAGER' || role === 'CASHIER' || role === 'ACCOUNTANT') {
     const requestedBusinessId = (req.query.businessId as string) || req.body?.businessId;
 
     if (requestedBusinessId && requestedBusinessId !== 'ALL' && requestedBusinessId !== callerBusinessId) {

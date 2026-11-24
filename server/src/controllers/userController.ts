@@ -36,7 +36,7 @@ export async function getUsers(req: Request, res: Response, next: NextFunction):
     const params: any[] = [];
 
     // Business isolation enforcement
-    if (callerRole === 'CUSTOMER_ADMIN' || callerRole === 'MANAGER' || callerRole === 'CASHIER' || callerRole === 'ACCOUNTANT') {
+    if (callerRole === 'CUSTOMER_ADMIN' || callerRole === 'EMPLOYEE' || callerRole === 'MANAGER' || callerRole === 'CASHIER' || callerRole === 'ACCOUNTANT') {
       if (!callerBusinessId) {
         res.status(403).json({ success: false, message: 'Forbidden: Missing business context.' });
         return;
@@ -88,6 +88,16 @@ export async function updateUser(req: Request, res: Response, next: NextFunction
       }
     }
 
+    let sanitizedRole = role;
+    if (role) {
+      const norm = role.trim().toUpperCase();
+      if (norm === 'ADMIN' || norm === 'CUSTOMER_ADMIN') {
+        sanitizedRole = 'Admin';
+      } else if (norm !== 'SUPER_ADMIN') {
+        sanitizedRole = 'Employee';
+      }
+    }
+
     const updateRes = await pool.query(
       `
       UPDATE users
@@ -100,7 +110,7 @@ export async function updateUser(req: Request, res: Response, next: NextFunction
       WHERE id = $5
       RETURNING id, name, email, phone, role, status, business_id;
       `,
-      [name, phone, role, status, id]
+      [name, phone, sanitizedRole, status, id]
     );
 
     const updated = updateRes.rows[0];
