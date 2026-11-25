@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { pool } from '../config/db.js';
+import { corsConfig } from '../config/appConfig.js';
 import { sendInvitationEmail } from '../services/emailService.js';
 import { recordAuditLog } from '../services/auditService.js';
 import { createNotification } from '../services/notificationService.js';
@@ -156,7 +157,7 @@ export async function createBusiness(req: Request, res: Response, next: NextFunc
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
       const originHeader = req.headers.origin || (req.headers.referer ? new URL(req.headers.referer).origin : null);
-      const frontendUrl = originHeader || process.env.FRONTEND_URL || 'http://localhost:5173';
+      const frontendUrl = originHeader || corsConfig.frontendUrl || 'https://pos.sudoleads.com';
       inviteUrl = `${frontendUrl}/?token=${token}`;
 
       const emailResult = await sendInvitationEmail({

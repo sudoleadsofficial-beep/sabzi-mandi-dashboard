@@ -932,6 +932,18 @@ export async function runMigrations(): Promise<void> {
       ON CONFLICT (name) DO NOTHING;
     `);
 
+    // 10. Migration 008: Role Normalization (Standardize Client Admin role to 'CUSTOMER_ADMIN')
+    await client.query(`
+      UPDATE users SET role = 'CUSTOMER_ADMIN' WHERE UPPER(role) IN ('ADMIN', 'CLIENT_ADMIN', 'CLIENT ADMIN');
+      UPDATE invitations SET role = 'CUSTOMER_ADMIN' WHERE UPPER(role) IN ('ADMIN', 'CLIENT_ADMIN', 'CLIENT ADMIN');
+    `);
+
+    await client.query(`
+      INSERT INTO migrations (name)
+      VALUES ('008_normalize_customer_admin_role')
+      ON CONFLICT (name) DO NOTHING;
+    `);
+
     await client.query('COMMIT');
     console.log('[Migration] Database migration & seeding completed successfully.');
   } catch (error) {

@@ -7,15 +7,31 @@ import { sendInvitationEmail } from '../services/emailService.js';
 import { recordAuditLog } from '../services/auditService.js';
 import { createNotification } from '../services/notificationService.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'pos-mandi-super-secret-jwt-key-2026-production';
+import { authConfig, serverConfig, corsConfig } from '../config/appConfig.js';
+
+export function isClientAdminRole(role?: string): boolean {
+  if (!role) return false;
+  const norm = role.trim().toUpperCase();
+  return norm === 'ADMIN' || norm === 'CUSTOMER_ADMIN' || norm === 'CLIENT_ADMIN' || norm === 'CLIENT ADMIN';
+}
+
+export function isSuperAdminRole(role?: string): boolean {
+  if (!role) return false;
+  const norm = role.trim().toUpperCase();
+  return norm === 'SUPER_ADMIN' || norm === 'SUPERADMIN' || norm === 'SUPER ADMIN';
+}
+
+export function isEmployeeRole(role?: string): boolean {
+  if (!role) return false;
+  return !isClientAdminRole(role) && !isSuperAdminRole(role);
+}
 
 export function normalizeAssignedRole(rawRole: string): string {
-  const norm = (rawRole || '').trim().toUpperCase();
-  if (norm === 'ADMIN' || norm === 'CUSTOMER_ADMIN') {
-    return 'Admin';
-  }
-  if (norm === 'SUPER_ADMIN') {
+  if (isSuperAdminRole(rawRole)) {
     return 'SUPER_ADMIN';
+  }
+  if (isClientAdminRole(rawRole)) {
+    return 'CUSTOMER_ADMIN';
   }
   return 'Employee';
 }
@@ -100,7 +116,7 @@ export async function sendInvitation(req: Request, res: Response, next: NextFunc
     );
 
     // If this is an employee role (Cashier, Manager, Accountant), stage the user in users table as 'Pending Password Creation'
-    if (role.toUpperCase() !== 'CUSTOMER_ADMIN') {
+    if (isEmployeeRole(normalizedRole)) {
       const tempUserId = `usr-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`;
       const stageUserSql = `
         INSERT INTO users (
@@ -136,7 +152,7 @@ export async function sendInvitation(req: Request, res: Response, next: NextFunc
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
     const originHeader = req.headers.origin || (req.headers.referer ? new URL(req.headers.referer).origin : null);
-    const frontendUrl = originHeader || process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = originHeader || corsConfig.frontendUrl || 'https://pos.sudoleads.com';
     const inviteUrl = `${frontendUrl}/?token=${token}`;
 
     // Dispatch real email via Brevo SMTP
@@ -374,25 +390,63 @@ export async function verifyInvitation(req: Request, res: Response, next: NextFu
     }
 
     const invite = result.rows[0];
+    const isClientAdmin = isClientAdminRole(invite.role);
+    const isEmployee = isEmployeeRole(invite.role);
 
     if (invite.status === 'Accepted') {
-      if (invite.role !== 'CUSTOMER_ADMIN') {
+      if (isClientAdmin) {
+        // Resilient check: did this Client Admin actually set a password in users?
+        // If the previous buggy flow accepted their invite as an employee, they might still lack a real password.
+        const userCheck = await pool.query(
+          'SELECT id, password_hash, status FROM users WHERE LOWER(TRIM(email)) = $1',
+          [invite.email.trim().toLowerCase()]
+        );
+        const existingUser = userCheck.rows[0];
+        const hasValidPassword =
+          existingUser &&
+          existingUser.password_hash &&
+          !existingUser.password_hash.includes('LOCKED_PENDING_ACTIVATION');
+
+        if (!existingUser || !hasValidPassword || existingUser.status !== 'Active') {
+          // Allow them to set password on the web
+          res.status(200).json({
+            valid: true,
+            invitation: {
+              id: invite.id,
+              businessId: invite.business_id,
+              businessName: invite.business_name,
+              businessCity: invite.business_city,
+              mandiLocation: invite.mandi_location,
+              email: invite.email,
+              name: invite.name,
+              role: 'CUSTOMER_ADMIN',
+              isEmployee: false,
+              isAdmin: true,
+              invitedByName: invite.invited_by_name,
+              expiresAt: invite.expires_at,
+            },
+            recovered: true,
+          });
+          return;
+        }
+
         res.status(200).json({
           valid: false,
-          status: 'already_accepted',
-          isEmployee: true,
-          role: invite.role,
-          businessName: invite.business_name,
-          email: invite.email,
-          name: invite.name,
-          message: 'Your invitation has already been accepted. Please open the Vegetable POS application installed on your computer to create your password and activate your account.',
+          status: 'accepted',
+          message: 'This invitation has already been accepted. Please sign in.',
         });
         return;
       }
+
       res.status(200).json({
         valid: false,
-        status: 'accepted',
-        message: 'This invitation has already been accepted. Please sign in.',
+        status: 'already_accepted',
+        isEmployee: true,
+        role: invite.role,
+        businessName: invite.business_name,
+        email: invite.email,
+        name: invite.name,
+        message: 'Your invitation has already been accepted. Please open the Vegetable POS application installed on your computer to create your password and activate your account.',
       });
       return;
     }
@@ -401,8 +455,8 @@ export async function verifyInvitation(req: Request, res: Response, next: NextFu
       res.status(200).json({
         valid: false,
         status: 'already_activated',
-        isEmployee: invite.role !== 'CUSTOMER_ADMIN',
-        message: invite.role !== 'CUSTOMER_ADMIN'
+        isEmployee: isEmployee,
+        message: isEmployee
           ? 'Your account is already active. Please open the Vegetable POS application to log in.'
           : 'Your account is already active. Please sign in.',
       });
@@ -438,8 +492,9 @@ export async function verifyInvitation(req: Request, res: Response, next: NextFu
         mandiLocation: invite.mandi_location,
         email: invite.email,
         name: invite.name,
-        role: invite.role,
-        isEmployee: invite.role !== 'CUSTOMER_ADMIN',
+        role: isClientAdmin ? 'CUSTOMER_ADMIN' : 'Employee',
+        isEmployee: isEmployee,
+        isAdmin: isClientAdmin,
         invitedByName: invite.invited_by_name,
         expiresAt: invite.expires_at,
       },
@@ -485,11 +540,37 @@ export async function acceptInvitation(req: Request, res: Response, next: NextFu
     }
 
     const invite = inviteRes.rows[0];
+    const isClientAdmin = isClientAdminRole(invite.role);
+    const isEmployee = isEmployeeRole(invite.role);
+
+    // Security check: Employees cannot accept or create passwords via the web dashboard
+    if (isEmployee) {
+      await client.query('ROLLBACK');
+      res.status(400).json({
+        success: false,
+        message: 'Employees must accept invitations and create their password through the installed Vegetable POS application.',
+      });
+      return;
+    }
 
     if (invite.status === 'Accepted') {
-      await client.query('ROLLBACK');
-      res.status(400).json({ success: false, message: 'This invitation has already been accepted. Please sign in.' });
-      return;
+      // Check if user already has an active account with real password
+      const userCheck = await client.query(
+        'SELECT id, password_hash, status FROM users WHERE LOWER(TRIM(email)) = $1',
+        [invite.email.trim().toLowerCase()]
+      );
+      const existingUser = userCheck.rows[0];
+      const hasValidPassword =
+        existingUser &&
+        existingUser.password_hash &&
+        !existingUser.password_hash.includes('LOCKED_PENDING_ACTIVATION');
+
+      if (hasValidPassword && existingUser.status === 'Active') {
+        await client.query('ROLLBACK');
+        res.status(400).json({ success: false, message: 'This invitation has already been accepted. Please sign in.' });
+        return;
+      }
+      // If user has no valid password yet (recovering from previous flow bug), proceed with password setup
     }
 
     if (invite.status === 'Activated') {
@@ -508,16 +589,6 @@ export async function acceptInvitation(req: Request, res: Response, next: NextFu
       await client.query("UPDATE invitations SET status = 'Expired', updated_at = NOW() WHERE id = $1", [invite.id]);
       await client.query('COMMIT');
       res.status(400).json({ success: false, message: 'This invitation has expired.' });
-      return;
-    }
-
-    // Security check: Employees cannot accept or create passwords via the web dashboard
-    if (invite.role !== 'CUSTOMER_ADMIN') {
-      await client.query('ROLLBACK');
-      res.status(400).json({
-        success: false,
-        message: 'Employees must accept invitations and create their password through the installed Vegetable POS application.',
-      });
       return;
     }
 
@@ -622,7 +693,7 @@ export async function acceptInvitation(req: Request, res: Response, next: NextFu
       businessName: businessName,
     };
 
-    const jwtToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '30d' });
+    const jwtToken = jwt.sign(tokenPayload, authConfig.jwtSecret, { expiresIn: authConfig.jwtExpiresIn as any });
 
     res.status(200).json({
       success: true,
@@ -725,7 +796,7 @@ export async function acceptEmployeeInvitation(req: Request, res: Response, next
     }
 
     // Role check: this endpoint is exclusively for employees
-    if (invite.role === 'CUSTOMER_ADMIN') {
+    if (isClientAdminRole(invite.role) || isSuperAdminRole(invite.role)) {
       await client.query('ROLLBACK');
       res.status(400).json({
         success: false,

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
+import { apiFetch } from '../../config/api';
 import { Business } from '../../types';
 import { Badge } from '../common/Badge';
 import { Button } from '../common/Button';
@@ -61,7 +62,7 @@ export const BusinessesTab: React.FC<BusinessesTabProps> = ({ onOpenAddBusiness 
   // Check live server SMTP status
   const checkSmtpStatus = async () => {
     try {
-      const res = await fetch('/api/invitations/smtp-status');
+      const res = await apiFetch('/api/invitations/smtp-status');
       if (res.ok) {
         const data = await res.json();
         setIsSmtpConfigured(Boolean(data.configured));

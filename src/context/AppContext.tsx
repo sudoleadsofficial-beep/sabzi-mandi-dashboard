@@ -14,6 +14,7 @@ import {
 } from '../types';
 import { initialRolesPermissions } from '../data/mockData';
 import { normalizeRolesPermissions, ALL_FEATURE_IDS } from '../constants/posFeatures';
+import { apiFetch } from '../config/api';
 
 export interface ToastMessage {
   id: string;
@@ -221,12 +222,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const token = sessionStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(AUTH_TOKEN_KEY);
     if (token) {
-      fetch('/api/auth/me', {
+      apiFetch('/api/auth/me', {
         headers: { Authorization: `Bearer ${token}` },
       })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.success && data.user) {
+        .then(async (res) => {
+          if (!res.ok) {
+            // Only invalidate session on explicit auth rejections (401/403)
+            if (res.status === 401 || res.status === 403) {
+              sessionStorage.removeItem(AUTH_USER_KEY);
+              sessionStorage.removeItem(AUTH_TOKEN_KEY);
+              localStorage.removeItem(AUTH_USER_KEY);
+              localStorage.removeItem(AUTH_TOKEN_KEY);
+              setCurrentUser(null);
+            }
+            return;
+          }
+          const data = await res.json().catch(() => null);
+          if (data?.success && data?.user) {
             const u: CurrentUser = {
               id: data.user.id,
               name: data.user.name,
@@ -237,12 +249,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               token: data.token || token,
             };
             setCurrentUser(u);
-          } else {
-            sessionStorage.removeItem(AUTH_USER_KEY);
-            sessionStorage.removeItem(AUTH_TOKEN_KEY);
-            localStorage.removeItem(AUTH_USER_KEY);
-            localStorage.removeItem(AUTH_TOKEN_KEY);
-            setCurrentUser(null);
           }
         })
         .catch((err) => {
@@ -258,7 +264,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ? `/api/businesses?businessId=${encodeURIComponent(currentUser.companyId)}`
         : '/api/businesses';
 
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const res = await apiFetch(url, { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (data.businesses && Array.isArray(data.businesses)) {
@@ -305,7 +311,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ? `/api/users?businessId=${encodeURIComponent(currentUser.companyId)}`
         : '/api/users';
 
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const res = await apiFetch(url, { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (data.users && Array.isArray(data.users)) {
@@ -324,7 +330,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ? `/api/invitations?businessId=${encodeURIComponent(currentUser.companyId)}`
         : '/api/invitations';
 
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const res = await apiFetch(url, { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (data.invitations && Array.isArray(data.invitations)) {
@@ -354,7 +360,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 4. Fetch Real Notifications from PostgreSQL
   const refreshNotifications = useCallback(async () => {
     try {
-      const res = await fetch('/api/notifications', { headers: getAuthHeaders() });
+      const res = await apiFetch('/api/notifications', { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (data.notifications && Array.isArray(data.notifications)) {
@@ -370,7 +376,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 5. Fetch Real Audit Logs from PostgreSQL
   const refreshAuditLogs = useCallback(async () => {
     try {
-      const res = await fetch('/api/audit-logs', { headers: getAuthHeaders() });
+      const res = await apiFetch('/api/audit-logs', { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (data.auditLogs && Array.isArray(data.auditLogs)) {
@@ -385,7 +391,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 6. Fetch Real Devices & Sync Records from PostgreSQL
   const refreshDevices = useCallback(async () => {
     try {
-      const res = await fetch('/api/devices', { headers: getAuthHeaders() });
+      const res = await apiFetch('/api/devices', { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (data.devices && Array.isArray(data.devices)) {
@@ -399,7 +405,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const refreshSyncRecords = useCallback(async () => {
     try {
-      const res = await fetch('/api/devices/sync-records', { headers: getAuthHeaders() });
+      const res = await apiFetch('/api/devices/sync-records', { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (data.syncRecords && Array.isArray(data.syncRecords)) {
@@ -445,7 +451,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Load real business profile for active customer admin from PostgreSQL
   useEffect(() => {
     if (currentUser?.companyId && currentUser?.role !== 'SUPER_ADMIN') {
-      fetch(`/api/businesses?businessId=${encodeURIComponent(currentUser.companyId)}`, {
+      apiFetch(`/api/businesses?businessId=${encodeURIComponent(currentUser.companyId)}`, {
         headers: getAuthHeaders(),
       })
         .then((res) => res.json())
@@ -524,7 +530,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const logout = () => {
-    fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
     sessionStorage.removeItem(AUTH_USER_KEY);
     sessionStorage.removeItem(AUTH_TOKEN_KEY);
     sessionStorage.removeItem('vegetable_pos_demo_auth');
@@ -552,7 +558,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   ): Promise<BusinessCreationResult> => {
     try {
-      const response = await fetch('/api/businesses', {
+      const response = await apiFetch('/api/businesses', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -618,7 +624,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return { success: false, message: 'Recipient email required' };
       }
 
-      const response = await fetch('/api/invitations/send', {
+      const response = await apiFetch('/api/invitations/send', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -666,7 +672,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateBusiness = async (id: string, updates: Partial<Business>) => {
     try {
-      const response = await fetch(`/api/businesses/${id}`, {
+      const response = await apiFetch(`/api/businesses/${id}`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify(updates),
@@ -688,7 +694,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteBusiness = async (id: string): Promise<boolean> => {
     try {
-      const response = await fetch(`/api/businesses/${id}`, {
+      const response = await apiFetch(`/api/businesses/${id}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
       });
@@ -717,7 +723,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newStatus = target.status === 'Active' ? 'Suspended' : 'Active';
 
     try {
-      const response = await fetch(`/api/businesses/${id}`, {
+      const response = await apiFetch(`/api/businesses/${id}`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify({ status: newStatus }),
@@ -741,7 +747,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateUser = async (id: string, updates: Partial<AppUser>) => {
     try {
-      const response = await fetch(`/api/users/${id}`, {
+      const response = await apiFetch(`/api/users/${id}`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify(updates),
@@ -762,7 +768,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteUser = async (id: string): Promise<boolean> => {
     try {
-      const response = await fetch(`/api/users/${id}`, {
+      const response = await apiFetch(`/api/users/${id}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
       });
@@ -785,7 +791,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const toggleUserStatus = async (id: string) => {
     try {
-      const response = await fetch(`/api/users/${id}/toggle-status`, {
+      const response = await apiFetch(`/api/users/${id}/toggle-status`, {
         method: 'POST',
         headers: getAuthHeaders(),
       });
@@ -818,7 +824,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const triggerSyncRetry = async (id: string) => {
     try {
-      const res = await fetch(`/api/devices/sync-retry/${id}`, {
+      const res = await apiFetch(`/api/devices/sync-retry/${id}`, {
         method: 'POST',
         headers: getAuthHeaders(),
       });
@@ -848,7 +854,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const inviterName = `${currentUser?.companyName || 'Mandi Business'} – Customer Admin`;
 
-      const response = await fetch('/api/invitations/send', {
+      const response = await apiFetch('/api/invitations/send', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -894,7 +900,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const cancelInvitation = async (id: string): Promise<void> => {
     try {
-      const response = await fetch(`/api/invitations/${id}/cancel`, {
+      const response = await apiFetch(`/api/invitations/${id}/cancel`, {
         method: 'POST',
         headers: getAuthHeaders(),
       });
@@ -921,7 +927,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return { success: false, message: 'Invitation not found' };
       }
 
-      const response = await fetch('/api/invitations/send', {
+      const response = await apiFetch('/api/invitations/send', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -987,7 +993,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     try {
-      const res = await fetch(`/api/businesses/${targetId}/permissions`, {
+      const res = await apiFetch(`/api/businesses/${targetId}/permissions`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify({ rolePermissions: updatedRoles }),
@@ -1023,7 +1029,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetId = currentUser?.companyId || companyProfile.id;
     if (targetId) {
       try {
-        const res = await fetch(`/api/businesses/${targetId}`, {
+        const res = await apiFetch(`/api/businesses/${targetId}`, {
           method: 'PUT',
           headers: getAuthHeaders(),
           body: JSON.stringify({
@@ -1059,7 +1065,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetId = currentUser?.companyId || companyProfile.id;
     if (!targetId) return false;
     try {
-      const res = await fetch(`/api/businesses/${targetId}/settings`, {
+      const res = await apiFetch(`/api/businesses/${targetId}/settings`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify(settings),
@@ -1081,7 +1087,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const markNotificationAsRead = async (id: string) => {
     try {
-      await fetch(`/api/notifications/${id}/read`, {
+      await apiFetch(`/api/notifications/${id}/read`, {
         method: 'PUT',
         headers: getAuthHeaders(),
       });
@@ -1093,7 +1099,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const markAllNotificationsAsRead = async () => {
     try {
-      await fetch('/api/notifications/mark-all-read', {
+      await apiFetch('/api/notifications/mark-all-read', {
         method: 'PUT',
         headers: getAuthHeaders(),
       });
@@ -1106,7 +1112,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const dismissNotification = async (id: string) => {
     try {
-      await fetch(`/api/notifications/${id}`, {
+      await apiFetch(`/api/notifications/${id}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
       });
@@ -1118,7 +1124,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const changePassword = async (currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> => {
     try {
-      const res = await fetch('/api/auth/change-password', {
+      const res = await apiFetch('/api/auth/change-password', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({ currentPassword, newPassword }),
@@ -1141,7 +1147,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateProfile = async (name: string, phone: string): Promise<{ success: boolean; message: string }> => {
     try {
-      const res = await fetch('/api/auth/profile', {
+      const res = await apiFetch('/api/auth/profile', {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify({ name, phone }),

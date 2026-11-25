@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { authConfig } from '../config/appConfig.js';
 
 export interface AuthUser {
   id: string;
@@ -20,8 +21,6 @@ declare global {
   }
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'pos-mandi-super-secret-jwt-key-2026-production';
-
 /**
  * Middleware to authenticate requests using JWT Bearer token
  * Also gracefully supports development x-user-* headers if JWT is not yet attached
@@ -32,7 +31,7 @@ export function authenticateToken(req: Request, res: Response, next: NextFunctio
 
   if (token) {
     try {
-      const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
+      const decoded = jwt.verify(token, authConfig.jwtSecret) as AuthUser;
       req.user = {
         ...decoded,
         role: (decoded.role || '').trim().toUpperCase(),

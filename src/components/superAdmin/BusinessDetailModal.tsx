@@ -4,6 +4,7 @@ import { Button } from '../common/Button';
 import { Badge } from '../common/Badge';
 import { Business } from '../../types';
 import { useApp } from '../../context/AppContext';
+import { apiFetch } from '../../config/api';
 import { 
   Edit2, 
   Check, 
@@ -46,7 +47,7 @@ export const BusinessDetailModal: React.FC<BusinessDetailModalProps> = ({
 
   // Sync state when modal opens or business changes
   React.useEffect(() => {
-    fetch('/api/invitations/smtp-status')
+    apiFetch('/api/invitations/smtp-status')
       .then((r) => r.json())
       .then((d) => setIsSmtpConfigured(Boolean(d.configured)))
       .catch(() => {});

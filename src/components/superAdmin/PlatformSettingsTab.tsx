@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { API_BASE_URL } from '../../config/api';
 import { Button } from '../common/Button';
 import { 
   Settings, 
@@ -29,7 +30,7 @@ export const PlatformSettingsTab: React.FC = () => {
   const [alertFailedLogins, setAlertFailedLogins] = useState(true);
 
   // Hostinger API
-  const [apiEndpoint, setApiEndpoint] = useState('https://pos-api.sudoleads.com/v1');
+  const [apiEndpoint, setApiEndpoint] = useState(API_BASE_URL || 'https://api.sudoleads.com');
   const [syncInterval, setSyncInterval] = useState('15');
 
   const handleSaveProfile = async (e: React.FormEvent) => {

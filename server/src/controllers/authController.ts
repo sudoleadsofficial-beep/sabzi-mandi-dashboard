@@ -2,10 +2,10 @@ import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool } from '../config/db.js';
+import { authConfig } from '../config/appConfig.js';
+import { isSuperAdminRole, isClientAdminRole } from './invitationController.js';
 import { recordAuditLog } from '../services/auditService.js';
 import { createNotification } from '../services/notificationService.js';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'pos-mandi-super-secret-jwt-key-2026-production';
 
 export async function login(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -80,7 +80,7 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
     }
 
     // Role restriction: Web dashboard is exclusively for Super Admins and Customer Admins
-    if (user.role !== 'SUPER_ADMIN' && user.role !== 'CUSTOMER_ADMIN') {
+    if (!isSuperAdminRole(user.role) && !isClientAdminRole(user.role)) {
       console.warn(`[Auth API] Web dashboard login rejected for employee role "${user.role}" ("${cleanEmail}"). POS terminal access only.`);
       res.status(403).json({
         success: false,
@@ -109,8 +109,8 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
         businessId: user.business_id,
         businessName: businessName,
       },
-      JWT_SECRET,
-      { expiresIn: rememberMe ? '30d' : '24h' }
+      authConfig.jwtSecret,
+      { expiresIn: (rememberMe ? authConfig.jwtExpiresIn : '24h') as any }
     );
 
     // Return authenticated user profile and token
@@ -153,7 +153,7 @@ export async function me(req: Request, res: Response, next: NextFunction): Promi
     if (authHeader && authHeader.startsWith('Bearer ')) {
       try {
         const token = authHeader.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET) as any;
+        const decoded = jwt.verify(token, authConfig.jwtSecret) as any;
         userEmail = decoded.email;
       } catch (err) {
         res.status(401).json({ success: false, message: 'Invalid or expired token.' });
@@ -212,8 +212,8 @@ export async function me(req: Request, res: Response, next: NextFunction): Promi
         businessId: user.business_id,
         businessName: businessName,
       },
-      JWT_SECRET,
-      { expiresIn: '30d' }
+      authConfig.jwtSecret,
+      { expiresIn: authConfig.jwtExpiresIn as any }
     );
 
     res.status(200).json({

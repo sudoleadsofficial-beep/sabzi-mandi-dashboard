@@ -3,10 +3,9 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { pool } from '../config/db.js';
+import { authConfig } from '../config/appConfig.js';
 import { recordAuditLog } from '../services/auditService.js';
 import { createNotification } from '../services/notificationService.js';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'pos-mandi-super-secret-jwt-key-2026-production';
 
 export const ALL_POS_FEATURE_KEYS = [
   'new_sale',
@@ -385,7 +384,7 @@ export async function activate(req: Request, res: Response, next: NextFunction):
       businessId: user.business_id,
       businessName: invite.business_name,
     };
-    const jwtToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '90d' });
+    const jwtToken = jwt.sign(tokenPayload, authConfig.jwtSecret, { expiresIn: '90d' });
 
     res.status(200).json({
       success: true,
@@ -493,7 +492,7 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
       businessId: user.business_id,
       businessName: user.business_name,
     };
-    const jwtToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '90d' });
+    const jwtToken = jwt.sign(tokenPayload, authConfig.jwtSecret, { expiresIn: '90d' });
 
     res.status(200).json({
       success: true,

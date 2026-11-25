@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { apiFetch } from '../../config/api';
 import { BrandLogo } from '../common/BrandLogo';
 import { Button } from '../common/Button';
 import { 
@@ -33,7 +34,7 @@ export const LoginPage: React.FC = () => {
     const cleanPassword = targetPass.trim();
 
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await apiFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: cleanEmail, password: cleanPassword, rememberMe }),
@@ -43,7 +44,15 @@ export const LoginPage: React.FC = () => {
       try {
         data = await response.json();
       } catch {
-        setErrorMessage('Server error: invalid response received from backend.');
+        if (response.status === 404) {
+          setErrorMessage('API endpoint not found (HTTP 404). Please verify backend routes at https://api.sudoleads.com.');
+        } else if (response.status === 502 || response.status === 503 || response.status === 504) {
+          setErrorMessage(`Backend service is temporarily unavailable (HTTP ${response.status}). The server or Docker container may be restarting.`);
+        } else if (!response.ok) {
+          setErrorMessage(`Backend responded with HTTP ${response.status} (${response.statusText || 'Error'}). Non-JSON response received.`);
+        } else {
+          setErrorMessage('Invalid response format received from backend server.');
+        }
         setIsSubmitting(false);
         return;
       }
@@ -61,13 +70,21 @@ export const LoginPage: React.FC = () => {
         setIsSubmitting(false);
         return;
       } else {
-        setErrorMessage(data.message || 'Invalid email or password.');
+        const fallbackMsg = response.status === 401 
+          ? 'Invalid email or password.' 
+          : `Authentication failed (HTTP ${response.status}).`;
+        setErrorMessage(data?.message || fallbackMsg);
         setIsSubmitting(false);
         return;
       }
     } catch (err: any) {
       console.error('[Login Error]:', err);
-      setErrorMessage('Unable to connect to the backend server. Please verify backend is running on port 5000.');
+      const isNetworkOrCors = err?.name === 'TypeError' || err?.message?.includes('fetch') || err?.message?.includes('Network');
+      if (isNetworkOrCors) {
+        setErrorMessage('Network connection failure or CORS request blocked. Please verify internet connectivity and ensure the backend VPS allows requests from pos.sudoleads.com.');
+      } else {
+        setErrorMessage(err?.message ? `Connection error: ${err.message}` : 'Unable to connect to the backend server.');
+      }
       setIsSubmitting(false);
     }
   };

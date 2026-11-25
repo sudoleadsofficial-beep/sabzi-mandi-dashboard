@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
+import { apiFetch } from '../../config/api';
 import { BrandLogo } from '../common/BrandLogo';
 import { Button } from '../common/Button';
 import { 
@@ -68,8 +69,22 @@ export const AcceptInvitationPage: React.FC<AcceptInvitationPageProps> = ({ toke
       setErrorMessage(null);
 
       try {
-        const res = await fetch(`/api/invitations/verify?token=${encodeURIComponent(token.trim())}`);
-        const data = await res.json();
+        const res = await apiFetch(`/api/invitations/verify?token=${encodeURIComponent(token.trim())}`);
+        let data: any;
+        try {
+          data = await res.json();
+        } catch {
+          if (!isMounted) return;
+          setErrorStatus('server_error');
+          if (res.status === 404) {
+            setErrorMessage('Verification endpoint not found (HTTP 404). Please verify backend routes.');
+          } else if (res.status === 502 || res.status === 503 || res.status === 504) {
+            setErrorMessage(`Backend service unavailable (HTTP ${res.status}). The server may be restarting.`);
+          } else {
+            setErrorMessage(`Authentication server returned an invalid response (HTTP ${res.status}).`);
+          }
+          return;
+        }
 
         if (!isMounted) return;
 
@@ -92,12 +107,20 @@ export const AcceptInvitationPage: React.FC<AcceptInvitationPageProps> = ({ toke
           // If this is an employee invitation, automatically accept it without password creation on web
           if (data.invitation.isEmployee) {
             try {
-              const acceptRes = await fetch('/api/invitations/accept-employee', {
+              const acceptRes = await apiFetch('/api/invitations/accept-employee', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ token: token.trim() }),
               });
-              const acceptData = await acceptRes.json();
+              let acceptData: any;
+              try {
+                acceptData = await acceptRes.json();
+              } catch {
+                if (!isMounted) return;
+                setErrorStatus('server_error');
+                setErrorMessage(`Server error (${acceptRes.status}) while accepting employee invitation.`);
+                return;
+              }
 
               if (!isMounted) return;
 
@@ -106,12 +129,12 @@ export const AcceptInvitationPage: React.FC<AcceptInvitationPageProps> = ({ toke
                 setEmployeeDetails(acceptData.employee || data.invitation);
               } else {
                 setErrorStatus('acceptance_failed');
-                setErrorMessage(acceptData.message || 'Unable to accept employee invitation.');
+                setErrorMessage(acceptData?.message || 'Unable to accept employee invitation.');
               }
             } catch (acceptErr) {
               if (!isMounted) return;
               setErrorStatus('network_error');
-              setErrorMessage('Failed to connect to the backend server to accept invitation.');
+              setErrorMessage('Failed to connect to backend server or request was blocked by CORS.');
             }
           }
         } else {
@@ -121,7 +144,7 @@ export const AcceptInvitationPage: React.FC<AcceptInvitationPageProps> = ({ toke
       } catch (err: any) {
         if (!isMounted) return;
         setErrorStatus('network_error');
-        setErrorMessage('Unable to connect to the authentication server. Please check your network connection.');
+        setErrorMessage('Unable to connect to the authentication server. Please verify internet connectivity or CORS settings.');
       } finally {
         if (isMounted) setIsLoading(false);
       }
@@ -152,7 +175,7 @@ export const AcceptInvitationPage: React.FC<AcceptInvitationPageProps> = ({ toke
     setIsSubmitting(true);
 
     try {
-      const res = await fetch('/api/invitations/accept', {
+      const res = await apiFetch('/api/invitations/accept', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -161,7 +184,18 @@ export const AcceptInvitationPage: React.FC<AcceptInvitationPageProps> = ({ toke
         }),
       });
 
-      const data = await res.json();
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        setFormError(
+          res.status >= 500
+            ? `Backend service error (HTTP ${res.status}). Please try again shortly.`
+            : `Unexpected response format (HTTP ${res.status}).`
+        );
+        setIsSubmitting(false);
+        return;
+      }
 
       if (res.ok && data.success) {
         setIsSuccess(true);
@@ -173,7 +207,7 @@ export const AcceptInvitationPage: React.FC<AcceptInvitationPageProps> = ({ toke
         setFormError(data.message || 'Failed to activate account. The invitation may have expired.');
       }
     } catch (err: any) {
-      setFormError('Server error while activating your account. Please try again.');
+      setFormError('Network failure or request blocked. Please check your connection and try again.');
     } finally {
       setIsSubmitting(false);
     }

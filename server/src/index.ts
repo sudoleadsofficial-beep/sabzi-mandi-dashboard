@@ -23,9 +23,11 @@ const __dirname = path.dirname(__filename);
 // Load environment variables
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
+import { serverConfig, corsConfig, apiRoutes } from './config/appConfig.js';
+
 const app = express();
-const PORT = parseInt(process.env.PORT || '5000', 10);
-const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
+const PORT = serverConfig.port;
+const CORS_ORIGIN = corsConfig.corsOrigin;
 
 // CORS configuration
 app.use(
@@ -35,6 +37,8 @@ app.use(
       if (!origin) return callback(null, true);
       if (
         origin === CORS_ORIGIN ||
+        origin === corsConfig.frontendUrl ||
+        origin === corsConfig.dashboardUrl ||
         origin.startsWith('http://localhost:') ||
         origin.startsWith('http://127.0.0.1:')
       ) {
@@ -51,7 +55,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Request logging in development
-if (process.env.NODE_ENV !== 'production') {
+if (serverConfig.nodeEnv !== 'production') {
   app.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
     next();
@@ -59,17 +63,17 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // Mount API routes
-app.use('/api', healthRouter);
-app.use('/api/auth', authRouter);
-app.use('/api/businesses', businessRouter);
-app.use('/api/invitations', invitationRouter);
-app.use('/api/users', userRouter);
-app.use('/api/notifications', notificationRouter);
-app.use('/api/audit-logs', auditRouter);
-app.use('/api/devices', deviceRouter);
-app.use('/api/pos/auth', posAuthRouter);
-app.use('/api/v1/sync', syncRouter);
-app.use('/api/sync', syncRouter);
+app.use(apiRoutes.base, healthRouter);
+app.use(apiRoutes.auth, authRouter);
+app.use(apiRoutes.businesses, businessRouter);
+app.use(apiRoutes.invitations, invitationRouter);
+app.use(apiRoutes.users, userRouter);
+app.use(apiRoutes.notifications, notificationRouter);
+app.use(apiRoutes.auditLogs, auditRouter);
+app.use(apiRoutes.devices, deviceRouter);
+app.use(apiRoutes.posAuth, posAuthRouter);
+app.use(apiRoutes.sync, syncRouter);
+app.use(apiRoutes.legacySync, syncRouter);
 
 // Root fallback / information
 app.get('/', (req, res) => {

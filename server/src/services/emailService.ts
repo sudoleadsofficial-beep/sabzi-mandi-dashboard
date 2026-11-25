@@ -1,4 +1,6 @@
 import nodemailer from 'nodemailer';
+import { smtpConfig } from '../config/appConfig.js';
+import { isClientAdminRole, isEmployeeRole } from '../controllers/invitationController.js';
 
 export interface SendInvitationEmailParams {
   toEmail: string;
@@ -19,9 +21,9 @@ export interface EmailSendResult {
 
 export function isSmtpConfigured(): boolean {
   return Boolean(
-    process.env.SMTP_HOST &&
-    process.env.SMTP_USER &&
-    process.env.SMTP_PASS
+    smtpConfig.host &&
+    smtpConfig.user &&
+    smtpConfig.pass
   );
 }
 
@@ -48,17 +50,17 @@ function formatRoleTitle(role?: string): { title: string; subtitle: string; desc
       description: 'You have been granted finance access to manage grower khatas, buyer ledgers, and daily roznamcha balance sheets.',
     };
   }
-  if (norm === 'ADMIN') {
+  if (isClientAdminRole(role)) {
     return {
-      title: 'Operations Admin',
-      subtitle: 'Full Mandi Shop Administration & Terminals',
-      description: 'You have been invited with administrative rights to manage shop settings, terminals, and staff accounts.',
+      title: 'Customer Admin',
+      subtitle: 'Primary Mandi Business Owner',
+      description: 'You have been registered as the primary administrator for your wholesale Mandi business on the Vegetable POS Admin Portal.',
     };
   }
   return {
-    title: 'Customer Admin',
-    subtitle: 'Primary Mandi Business Owner',
-    description: 'You have been registered as the primary administrator for your wholesale Mandi business on the Vegetable POS Admin Portal.',
+    title: 'POS Employee',
+    subtitle: 'Mandi Counter Operations',
+    description: 'You have been invited as an employee to access terminal operations on the Vegetable POS software.',
   };
 }
 
@@ -79,16 +81,16 @@ export async function sendInvitationEmail(params: SendInvitationEmailParams): Pr
 
   try {
     const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || '587', 10),
-      secure: process.env.SMTP_SECURE === 'true',
+      host: smtpConfig.host,
+      port: smtpConfig.port,
+      secure: smtpConfig.secure,
       auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
+        user: smtpConfig.user,
+        pass: smtpConfig.pass,
       },
     });
 
-    const fromAddress = process.env.SMTP_FROM || 'Vegetable POS <noreply@sudoleads.com>';
+    const fromAddress = smtpConfig.from || 'Vegetable POS <noreply@sudoleads.com>';
     const expiryFormatted = expiresAt.toLocaleDateString('en-US', {
       weekday: 'long',
       year: 'numeric',
@@ -100,7 +102,7 @@ export async function sendInvitationEmail(params: SendInvitationEmailParams): Pr
 
     const roleInfo = formatRoleTitle(role);
     const inviterText = invitedByName || 'Mandi Business Management';
-    const isEmployee = (role || '').toUpperCase() !== 'CUSTOMER_ADMIN';
+    const isEmployee = isEmployeeRole(role);
 
     const subject = isEmployee
       ? `Action Required: Accept your ${roleInfo.title} invitation for ${businessName}`
