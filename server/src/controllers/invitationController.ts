@@ -9,16 +9,27 @@ import { createNotification } from '../services/notificationService.js';
 
 import { authConfig, serverConfig, corsConfig } from '../config/appConfig.js';
 
+export function normalizeRoleString(role?: string): string {
+  if (!role) return '';
+  return role.trim().toUpperCase().replace(/[\s-]+/g, '_');
+}
+
 export function isClientAdminRole(role?: string): boolean {
   if (!role) return false;
-  const norm = role.trim().toUpperCase();
-  return norm === 'ADMIN' || norm === 'CUSTOMER_ADMIN' || norm === 'CLIENT_ADMIN' || norm === 'CLIENT ADMIN';
+  const norm = normalizeRoleString(role);
+  return (
+    norm === 'ADMIN' ||
+    norm === 'CUSTOMER_ADMIN' ||
+    norm === 'CLIENT_ADMIN' ||
+    norm === 'OWNER' ||
+    norm === 'BUSINESS_ADMIN'
+  );
 }
 
 export function isSuperAdminRole(role?: string): boolean {
   if (!role) return false;
-  const norm = role.trim().toUpperCase();
-  return norm === 'SUPER_ADMIN' || norm === 'SUPERADMIN' || norm === 'SUPER ADMIN';
+  const norm = normalizeRoleString(role);
+  return norm === 'SUPER_ADMIN' || norm === 'SUPERADMIN';
 }
 
 export function isEmployeeRole(role?: string): boolean {
@@ -60,7 +71,7 @@ export async function sendInvitation(req: Request, res: Response, next: NextFunc
     }
 
     // Role-based business isolation check: Customer Admin cannot invite for another business
-    if (callerRole === 'CUSTOMER_ADMIN' && callerBusinessId && callerBusinessId !== businessId) {
+    if (isClientAdminRole(callerRole) && callerBusinessId && callerBusinessId !== businessId) {
       res.status(403).json({
         success: false,
         message: 'Forbidden: You can only invite employees to your own business.',
@@ -69,7 +80,7 @@ export async function sendInvitation(req: Request, res: Response, next: NextFunc
     }
 
     // Customer Admin cannot create another Super Admin
-    if (callerRole === 'CUSTOMER_ADMIN' && role.toUpperCase() === 'SUPER_ADMIN') {
+    if (isClientAdminRole(callerRole) && isSuperAdminRole(role)) {
       res.status(403).json({
         success: false,
         message: 'Forbidden: Customer Admins cannot assign Super Admin role.',
@@ -265,7 +276,7 @@ export async function getInvitations(req: Request, res: Response, next: NextFunc
     const params: any[] = [];
 
     // Business isolation: Customer Admin can ONLY view their own invitations
-    if (callerRole === 'CUSTOMER_ADMIN' || callerRole === 'MANAGER') {
+    if (isClientAdminRole(callerRole) || callerRole === 'MANAGER') {
       if (!callerBusinessId) {
         res.status(403).json({ success: false, message: 'Forbidden: Missing business authorization.' });
         return;
@@ -304,7 +315,7 @@ export async function cancelInvitation(req: Request, res: Response, next: NextFu
     const invitation = checkRes.rows[0];
 
     // Business isolation check
-    if (callerRole === 'CUSTOMER_ADMIN' && callerBusinessId && invitation.business_id !== callerBusinessId) {
+    if (isClientAdminRole(callerRole) && callerBusinessId && invitation.business_id !== callerBusinessId) {
       res.status(403).json({ success: false, message: 'Forbidden: Cannot cancel invitations of other businesses.' });
       return;
     }

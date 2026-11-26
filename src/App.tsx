@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useApp } from './context/AppContext';
+import { useApp, isSuperAdminRole } from './context/AppContext';
 import { LoginPage } from './components/auth/LoginPage';
 import { AcceptInvitationPage } from './components/auth/AcceptInvitationPage';
 import { DashboardLayout } from './components/layout/DashboardLayout';
@@ -58,7 +58,7 @@ export const AppContent: React.FC = () => {
     return <LoginPage />;
   }
 
-  const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
+  const isSuperAdmin = isSuperAdminRole(currentUser.role);
 
   return (
     <DashboardLayout>

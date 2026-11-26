@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { pool } from '../config/db.js';
 import { recordAuditLog } from '../services/auditService.js';
 import { createNotification } from '../services/notificationService.js';
+import { isSuperAdminRole, isClientAdminRole } from './invitationController.js';
 
 export async function getUsers(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -36,7 +37,7 @@ export async function getUsers(req: Request, res: Response, next: NextFunction):
     const params: any[] = [];
 
     // Business isolation enforcement
-    if (callerRole === 'CUSTOMER_ADMIN' || callerRole === 'EMPLOYEE' || callerRole === 'MANAGER' || callerRole === 'CASHIER' || callerRole === 'ACCOUNTANT') {
+    if (isClientAdminRole(callerRole) || callerRole === 'EMPLOYEE' || callerRole === 'MANAGER' || callerRole === 'CASHIER' || callerRole === 'ACCOUNTANT') {
       if (!callerBusinessId) {
         res.status(403).json({ success: false, message: 'Forbidden: Missing business context.' });
         return;
@@ -77,12 +78,12 @@ export async function updateUser(req: Request, res: Response, next: NextFunction
     const targetUser = checkRes.rows[0];
 
     // Business isolation check
-    if (callerRole === 'CUSTOMER_ADMIN') {
+    if (isClientAdminRole(callerRole)) {
       if (!callerBusinessId || targetUser.business_id !== callerBusinessId) {
         res.status(403).json({ success: false, message: 'Forbidden: You can only modify employees of your own business.' });
         return;
       }
-      if (role && role.toUpperCase() === 'SUPER_ADMIN') {
+      if (role && isSuperAdminRole(role)) {
         res.status(403).json({ success: false, message: 'Forbidden: Cannot assign Super Admin role.' });
         return;
       }
@@ -152,12 +153,12 @@ export async function toggleUserStatus(req: Request, res: Response, next: NextFu
 
     const targetUser = checkRes.rows[0];
 
-    if (callerRole === 'CUSTOMER_ADMIN') {
+    if (isClientAdminRole(callerRole)) {
       if (!callerBusinessId || targetUser.business_id !== callerBusinessId) {
         res.status(403).json({ success: false, message: 'Forbidden: Cannot modify users of another business.' });
         return;
       }
-      if (targetUser.role === 'SUPER_ADMIN') {
+      if (isSuperAdminRole(targetUser.role)) {
         res.status(403).json({ success: false, message: 'Forbidden: Cannot modify Super Admin status.' });
         return;
       }
@@ -217,12 +218,12 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
 
     const targetUser = checkRes.rows[0];
 
-    if (callerRole !== 'SUPER_ADMIN') {
-      if (callerRole !== 'CUSTOMER_ADMIN' || !callerBusinessId || targetUser.business_id !== callerBusinessId) {
+    if (!isSuperAdminRole(callerRole)) {
+      if (!isClientAdminRole(callerRole) || !callerBusinessId || targetUser.business_id !== callerBusinessId) {
         res.status(403).json({ success: false, message: 'Forbidden: You can only remove employees from your own business.' });
         return;
       }
-      if (targetUser.role === 'SUPER_ADMIN' || targetUser.role === 'CUSTOMER_ADMIN') {
+      if (isSuperAdminRole(targetUser.role) || isClientAdminRole(targetUser.role)) {
         res.status(403).json({ success: false, message: 'Forbidden: Customer Admin cannot delete admin accounts.' });
         return;
       }

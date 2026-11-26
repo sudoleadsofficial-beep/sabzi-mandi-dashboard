@@ -145,6 +145,15 @@ export async function checkStatus(req: Request, res: Response, next: NextFunctio
         role: user.role,
         businessId: user.business_id,
         businessName: user.business_name || 'Mandi Terminal',
+        mandiLocation: user.mandi_location || 'Kashmir Sabzi Mandi',
+        mandi_location: user.mandi_location || 'Kashmir Sabzi Mandi',
+        business: {
+          id: user.business_id,
+          name: user.business_name,
+          city: user.business_city,
+          mandiLocation: user.mandi_location,
+          mandi_location: user.mandi_location,
+        },
         message: 'Account is active. Enter your password to log in.',
       });
       return;
@@ -505,12 +514,15 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
         role: user.role,
         businessId: user.business_id,
         businessName: user.business_name,
+        mandiLocation: user.mandi_location,
+        mandi_location: user.mandi_location,
       },
       business: {
         id: user.business_id,
         name: user.business_name,
         city: user.business_city,
         mandiLocation: user.mandi_location,
+        mandi_location: user.mandi_location,
       },
       permissions: await getBusinessRolePermissions(user.business_id, user.role),
     });

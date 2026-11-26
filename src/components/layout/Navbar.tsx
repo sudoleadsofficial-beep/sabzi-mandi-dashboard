@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useApp } from '../../context/AppContext';
+import { useApp, isCustomerAdminRole, isSuperAdminRole } from '../../context/AppContext';
 import { BrandLogo } from '../common/BrandLogo';
 import { Badge } from '../common/Badge';
 import { 
@@ -32,8 +32,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
 
-  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
-  const isCustomerAdmin = currentUser?.role === 'CUSTOMER_ADMIN';
+  const isSuperAdmin = isSuperAdminRole(currentUser?.role);
+  const isCustomerAdmin = isCustomerAdminRole(currentUser?.role);
 
   return (
     <header className="h-16 bg-white border-b border-slate-200/90 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs">

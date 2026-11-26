@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { authConfig } from '../config/appConfig.js';
+import { isSuperAdminRole, isClientAdminRole, normalizeAssignedRole } from '../controllers/invitationController.js';
 
 export interface AuthUser {
   id: string;
@@ -8,7 +9,9 @@ export interface AuthUser {
   email: string;
   role: string;
   businessId?: string | null;
+  business_id?: string | null;
   businessName?: string | null;
+  business_name?: string | null;
 }
 
 // Extend Express Request
@@ -31,10 +34,12 @@ export function authenticateToken(req: Request, res: Response, next: NextFunctio
 
   if (token) {
     try {
-      const decoded = jwt.verify(token, authConfig.jwtSecret) as AuthUser;
+      const decoded = jwt.verify(token, authConfig.jwtSecret) as any;
+      const normalizedRole = normalizeAssignedRole(decoded.role || '');
       req.user = {
         ...decoded,
-        role: (decoded.role || '').trim().toUpperCase(),
+        businessId: decoded.businessId || decoded.business_id || null,
+        role: normalizedRole,
       };
       return next();
     } catch (err: any) {
@@ -58,7 +63,7 @@ export function authenticateToken(req: Request, res: Response, next: NextFunctio
       id: fallbackId || 'anonymous',
       name: 'User',
       email: '',
-      role: fallbackRole.trim().toUpperCase(),
+      role: normalizeAssignedRole(fallbackRole),
       businessId: fallbackBiz || null,
     };
     return next();
@@ -106,7 +111,7 @@ export function requireSuperAdmin(req: Request, res: Response, next: NextFunctio
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
   const role = (req.user?.role || (req.headers['x-user-role'] as string) || '').trim().toUpperCase();
 
-  if (role !== 'SUPER_ADMIN' && role !== 'CUSTOMER_ADMIN') {
+  if (!isSuperAdminRole(role) && !isClientAdminRole(role)) {
     res.status(403).json({
       success: false,
       message: 'Forbidden: Admin access (Super Admin or Customer Admin) is required for this route.',
@@ -125,15 +130,15 @@ export function enforceBusinessIsolation(req: Request, res: Response, next: Next
   const callerBusinessId = req.user?.businessId || (req.headers['x-user-business-id'] as string);
 
   // Super Admin can access all businesses
-  if (role === 'SUPER_ADMIN') {
+  if (isSuperAdminRole(role)) {
     return next();
   }
 
   // Customer Admin and business employees are strictly bound to their own business
-  if (role === 'CUSTOMER_ADMIN' || role === 'EMPLOYEE' || role === 'MANAGER' || role === 'CASHIER' || role === 'ACCOUNTANT') {
-    const requestedBusinessId = (req.query.businessId as string) || req.body?.businessId;
+  if (isClientAdminRole(role) || role === 'EMPLOYEE' || role === 'MANAGER' || role === 'CASHIER' || role === 'ACCOUNTANT') {
+    const requestedBusinessId = (req.query.businessId as string) || req.body?.businessId || req.params?.id;
 
-    if (requestedBusinessId && requestedBusinessId !== 'ALL' && requestedBusinessId !== callerBusinessId) {
+    if (requestedBusinessId && requestedBusinessId !== 'ALL' && callerBusinessId && requestedBusinessId !== callerBusinessId) {
       res.status(403).json({
         success: false,
         message: 'Forbidden: You cannot access data outside your authorized business.',

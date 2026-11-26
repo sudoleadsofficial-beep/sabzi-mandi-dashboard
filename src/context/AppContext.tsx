@@ -148,6 +148,30 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 const AUTH_TOKEN_KEY = 'vegetable_pos_jwt_token';
 const AUTH_USER_KEY = 'vegetable_pos_auth_user';
 
+export const normalizeUserRole = (role?: string): string => {
+  if (!role) return '';
+  const norm = role.trim().toUpperCase().replace(/[\s-]+/g, '_');
+  if (norm === 'SUPER_ADMIN' || norm === 'SUPERADMIN') return 'SUPER_ADMIN';
+  if (
+    norm === 'CUSTOMER_ADMIN' ||
+    norm === 'ADMIN' ||
+    norm === 'CLIENT_ADMIN' ||
+    norm === 'OWNER' ||
+    norm === 'BUSINESS_ADMIN'
+  ) {
+    return 'CUSTOMER_ADMIN';
+  }
+  return role.trim();
+};
+
+export const isCustomerAdminRole = (role?: string): boolean => {
+  return normalizeUserRole(role) === 'CUSTOMER_ADMIN';
+};
+
+export const isSuperAdminRole = (role?: string): boolean => {
+  return normalizeUserRole(role) === 'SUPER_ADMIN';
+};
+
 const getInitialUser = (): CurrentUser | null => {
   try {
     const saved =
@@ -162,6 +186,9 @@ const getInitialUser = (): CurrentUser | null => {
         localStorage.getItem(AUTH_TOKEN_KEY);
       if (token) {
         parsed.token = token;
+      }
+      if (parsed.role) {
+        parsed.role = normalizeUserRole(parsed.role);
       }
       return parsed;
     }
@@ -243,7 +270,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               id: data.user.id,
               name: data.user.name,
               email: data.user.email,
-              role: data.user.role,
+              role: normalizeUserRole(data.user.role),
               companyId: data.user.businessId,
               companyName: data.user.businessName,
               token: data.token || token,
@@ -260,7 +287,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 1. Fetch Real Businesses from PostgreSQL
   const refreshBusinesses = useCallback(async () => {
     try {
-      const url = currentUser?.role === 'CUSTOMER_ADMIN' && currentUser?.companyId
+      const url = isCustomerAdminRole(currentUser?.role) && currentUser?.companyId
         ? `/api/businesses?businessId=${encodeURIComponent(currentUser.companyId)}`
         : '/api/businesses';
 
@@ -307,7 +334,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 2. Fetch Real Users from PostgreSQL
   const refreshUsers = useCallback(async () => {
     try {
-      const url = currentUser?.role === 'CUSTOMER_ADMIN' && currentUser?.companyId
+      const url = isCustomerAdminRole(currentUser?.role) && currentUser?.companyId
         ? `/api/users?businessId=${encodeURIComponent(currentUser.companyId)}`
         : '/api/users';
 
@@ -326,7 +353,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 3. Fetch Real Invitations from PostgreSQL
   const refreshInvitations = useCallback(async () => {
     try {
-      const url = currentUser?.role === 'CUSTOMER_ADMIN' && currentUser?.companyId
+      const url = isCustomerAdminRole(currentUser?.role) && currentUser?.companyId
         ? `/api/invitations?businessId=${encodeURIComponent(currentUser.companyId)}`
         : '/api/invitations';
 
@@ -450,7 +477,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Load real business profile for active customer admin from PostgreSQL
   useEffect(() => {
-    if (currentUser?.companyId && currentUser?.role !== 'SUPER_ADMIN') {
+    if (currentUser?.companyId && !isSuperAdminRole(currentUser?.role)) {
       apiFetch(`/api/businesses?businessId=${encodeURIComponent(currentUser.companyId)}`, {
         headers: getAuthHeaders(),
       })
@@ -486,7 +513,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [currentUser?.companyId, currentUser?.role, getAuthHeaders]);
 
   const safeSetCurrentTab = (tab: string) => {
-    if (currentUser?.role === 'CUSTOMER_ADMIN') {
+    if (isCustomerAdminRole(currentUser?.role)) {
       const allowedCustomerTabs = ['overview', 'company', 'employees', 'roles', 'settings'];
       if (!allowedCustomerTabs.includes(tab)) {
         showToast('Access restricted: Super Admin section requires administrative privileges.', 'error');
@@ -504,8 +531,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     userData?: Partial<CurrentUser>,
     token?: string
   ) => {
-    const userRole = role.toUpperCase();
-    const isSuper = userRole === 'SUPER_ADMIN';
+    const userRole = normalizeUserRole(role);
+    const isSuper = isSuperAdminRole(userRole);
 
     const newUser: CurrentUser = {
       id: userData?.id || '',

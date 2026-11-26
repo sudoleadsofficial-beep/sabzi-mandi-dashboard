@@ -15,6 +15,7 @@ export const businessRouter = Router();
 businessRouter.use(authenticateToken);
 businessRouter.use(requireAdmin);
 businessRouter.get('/', enforceBusinessIsolation, getBusinesses);
+businessRouter.get('/:id', enforceBusinessIsolation, getBusinesses);
 businessRouter.post('/', requireSuperAdmin, createBusiness);
 businessRouter.put('/:id', enforceBusinessIsolation, updateBusiness);
 businessRouter.delete('/:id', requireSuperAdmin, deleteBusiness);

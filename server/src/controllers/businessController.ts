@@ -5,15 +5,16 @@ import { corsConfig } from '../config/appConfig.js';
 import { sendInvitationEmail } from '../services/emailService.js';
 import { recordAuditLog } from '../services/auditService.js';
 import { createNotification } from '../services/notificationService.js';
+import { isSuperAdminRole, isClientAdminRole } from './invitationController.js';
 
 export async function getBusinesses(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { businessId } = req.query;
+    const businessId = (req.query.businessId as string) || req.params.id;
     const callerRole = (req.user?.role || (req.headers['x-user-role'] as string) || '').trim().toUpperCase();
     const callerBusinessId = req.user?.businessId || (req.headers['x-user-business-id'] as string) || '';
 
     let targetBusinessId = businessId;
-    if (callerRole === 'CUSTOMER_ADMIN' || callerRole === 'EMPLOYEE' || callerRole === 'MANAGER' || callerRole === 'CASHIER' || callerRole === 'ACCOUNTANT') {
+    if (isClientAdminRole(callerRole) || callerRole === 'EMPLOYEE' || callerRole === 'MANAGER' || callerRole === 'CASHIER' || callerRole === 'ACCOUNTANT') {
       if (!callerBusinessId) {
         res.status(403).json({ success: false, message: 'Forbidden: Missing business authorization.' });
         return;
@@ -66,6 +67,7 @@ export async function getBusinesses(req: Request, res: Response, next: NextFunct
     res.status(200).json({
       success: true,
       businesses: result.rows,
+      business: result.rows[0] || null,
     });
   } catch (error) {
     next(error);
@@ -263,7 +265,7 @@ export async function updateBusiness(req: Request, res: Response, next: NextFunc
     const callerRole = (req.user?.role || (req.headers['x-user-role'] as string) || '').trim().toUpperCase();
     const callerBusinessId = req.user?.businessId || (req.headers['x-user-business-id'] as string) || '';
 
-    if (callerRole === 'CUSTOMER_ADMIN' && callerBusinessId !== id) {
+    if (isClientAdminRole(callerRole) && callerBusinessId !== id) {
       res.status(403).json({
         success: false,
         message: 'Forbidden: You cannot modify another business.',
@@ -439,7 +441,7 @@ export async function updateBusinessSettings(req: Request, res: Response, next: 
     const callerRole = (req.user?.role || '').trim().toUpperCase();
     const callerBusinessId = req.user?.businessId || '';
 
-    if (callerRole === 'CUSTOMER_ADMIN' && callerBusinessId !== id) {
+    if (isClientAdminRole(callerRole) && callerBusinessId !== id) {
       res.status(403).json({ success: false, message: 'Forbidden: You cannot modify another business\'s settings.' });
       return;
     }
@@ -508,7 +510,7 @@ export async function getBusinessPermissions(req: Request, res: Response, next: 
     const callerRole = (req.user?.role || '').trim().toUpperCase();
     const callerBusinessId = req.user?.businessId || '';
 
-    if (callerRole === 'CUSTOMER_ADMIN' && callerBusinessId !== id) {
+    if (isClientAdminRole(callerRole) && callerBusinessId !== id) {
       res.status(403).json({ success: false, message: "Forbidden: You cannot view another business's permissions." });
       return;
     }
@@ -565,7 +567,7 @@ export async function updateBusinessPermissions(req: Request, res: Response, nex
     const callerRole = (req.user?.role || '').trim().toUpperCase();
     const callerBusinessId = req.user?.businessId || '';
 
-    if (callerRole === 'CUSTOMER_ADMIN' && callerBusinessId !== id) {
+    if (isClientAdminRole(callerRole) && callerBusinessId !== id) {
       res.status(403).json({ success: false, message: "Forbidden: You cannot modify another business's permissions." });
       return;
     }
